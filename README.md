@@ -1,278 +1,215 @@
-<p align=center>
+<p align="center">
 <br>
-<a href="#Linux"><img src="https://img.shields.io/badge/os-linux-90ee90"></a>
-<a href="#Windows"><img src="https://img.shields.io/badge/os-windows-90ee90"></a>
-<a href="https://aur.archlinux.org/packages/anisama-cli"><img src="https://img.shields.io/aur/version/anisama-cli?style=flat&logo=archlinux&color=1793D1"></a>
+<a href="#linux"><img src="https://img.shields.io/badge/os-linux-90ee90"></a>
+<a href="#macos"><img src="https://img.shields.io/badge/os-macOS-lightgrey"></a>
 <br>
 <h1 align="center">🎌 anisama-cli</h1>
 <br>
-<a href="https://github.com/karbonedev"><img src="https://img.shields.io/badge/owner-karbonedev-ff6344"></a>
+<img src="https://img.shields.io/badge/version-1.3.5-blue">
+<a href="https://github.com/can-oktay404"><img src="https://img.shields.io/badge/owner-can--oktay404-ff6344"></a>
+<img src="https://img.shields.io/badge/python-3.6+-yellow">
 </p>
 
 <p align="center">
-This repository is also available in <a href="README_french.md"><img src="https://img.shields.io/badge/🇫🇷-French-blue" alt="French"></a>
+Also available in <a href="README_french.md"><img src="https://img.shields.io/badge/🇫🇷-Français-blue" alt="Français"></a>
 </p>
 
 <h3 align="center">
-A CLI to browse and watch anime from <a href="https://anime-sama.fr">anime-sama.fr</a> with <strong>ani-cli</strong> style interface
+A CLI to browse and stream anime from <a href="https://anime-sama.to">anime-sama.to</a> — <strong>ani-cli</strong> style interface
 </h3>
 
 <p align="center">
-<strong>✨ Interactive fuzzy finder • 🚀 One-command search • 🎯 French content support</strong>
+<strong>✨ Fuzzy finder &nbsp;•&nbsp; 🚀 One-command search &nbsp;•&nbsp; 🇫🇷 VF/VOSTFR support &nbsp;•&nbsp; ▶ Auto next episode</strong>
 </p>
 
-<h1 align="center">Showcase</h1>
-
-[ani-cli-demo.webm](https://user-images.githubusercontent.com/44473782/224679247-0856e652-f187-4865-bbcf-5a8e5cf830da.webm)
-
+---
 
 ## Table of Contents
 
-- [🚀 Install](#install)
-  - [📦 Arch Linux](#arch-linux)
-  - [🐧 Other Linux](#other-linux) 
-  - [🪟 Windows](#windows)
+- [📦 Install](#install)
 - [🎯 Usage](#usage)
+- [⚙️ Options](#options)
 - [🗑️ Uninstall](#uninstall)
 - [📚 Dependencies](#dependencies)
 - [❓ FAQ](#faq)
-- [🌐 Other Language CLI](#other-language-cli)
-- [🤝 Contributing](#contributing)
+- [🌐 Similar Projects](#similar-projects)
+
+---
 
 ## Install
 
-### Arch Linux
+### Ubuntu / Debian
 
 ```bash
-# Using yay (recommended)
-yay -S anisama-cli
+# 1. Install system dependencies
+sudo apt install git python3 python3-bs4 python3-requests mpv fzf
 
-# Using paru
-paru -S anisama-cli
-```
-
-### Other Linux
-
-**Prerequisites:** Ensure you have `curl`, `python3`, `pip`, and `mpv` installed.
-
-```bash
-# Clone repository
-git clone https://github.com/karbonedev/anisama-cli.git
+# 2. Clone and install
+git clone https://github.com/can-oktay404/anisama-cli.git
 cd anisama-cli
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Make executable and install globally
 chmod +x anisama-cli
 sudo cp anisama-cli /usr/local/bin/
 ```
 
-### Windows
+### Fedora
 
-Open PowerShell and run:
-```powershell
-# Download and install
-iwr -Uri "https://raw.githubusercontent.com/karbonedev/anisama-cli/main/install-windows.ps1" -OutFile "install.ps1"
-.\install.ps1
+```bash
+sudo dnf install git python3 python3-requests python3-beautifulsoup4 mpv fzf
+git clone https://github.com/can-oktay404/anisama-cli.git
+cd anisama-cli && chmod +x anisama-cli && sudo cp anisama-cli /usr/local/bin/
 ```
+
+### Arch Linux
+
+```bash
+# Via AUR
+yay -S anisama-cli
+```
+
+### macOS
+
+```bash
+brew install python mpv fzf git
+pip3 install requests beautifulsoup4
+git clone https://github.com/can-oktay404/anisama-cli.git
+cd anisama-cli && chmod +x anisama-cli && sudo cp anisama-cli /usr/local/bin/
+```
+
+---
 
 ## Usage
 
-### Basic Commands
-
 ```bash
-# Interactive mode
+# Interactive search (recommended)
 anisama-cli
 
 # Direct search
-anisama-cli "naruto"
+anisama-cli naruto
+anisama-cli "attack on titan"
 
-# French dub (recommended for anime-sama.fr)
-anisama-cli "one piece" --vf 🇫🇷
+# French dub (VF)
+anisama-cli --vf "one piece"
 
-# Continue watching
+# Continue from history
 anisama-cli -c
 
-# Show help
-anisama-cli --help
+# Help
+anisama-cli -h
 ```
 
-### Interface Features
+### Flow
 
-- **🔍 Fuzzy Search**: Type to filter results in real-time
-- **⌨️ Keyboard Navigation**: Use arrow keys, Enter to select, Escape to cancel
-- **📺 Smart Selection**: Interactive menus for anime, seasons, and episodes
-- **🎨 Clean Interface**: No complex menus, just the essentials
-- **💾 History**: Resume where you left off
+```
+  Recherche › naruto
+  ↓
+  [fzf] Anime › Naruto / Naruto Shippuden / ...
+  ↓
+  [fzf] Saison › Saison 1 VOSTFR / Saison 1 VF / ...
+  ↓
+  [fzf] Épisode › Épisode 1 / Épisode 2 / ...
+  ↓
+  mpv launches fullscreen
+  ↓
+  Suivant › Épisode 2 ? [O/n]   ← auto next episode
+```
 
-### Command Options
+---
+
+## Options
 
 | Option | Description |
 |--------|-------------|
-| `--vf` | Enable French voice/dub 🇫🇷 |
-| `-c, --continue` | Continue watching from history |
-| `-h, --help` | Show help message |
-| `-v, --version` | Show version |
+| `--vf` | French dub (VF) only |
+| `-c, --continue` | Resume from history |
+| `--debug` | Verbose debug output |
+| `--check-services` | Show which streaming service each anime uses |
+| `--available-only` | List animes that work without VPN (Sibnet) |
+| `-h, --help` | Show help |
+
+---
 
 ## Uninstall
 
-<details>
-<summary>📋 Click to expand uninstall instructions</summary>
-
-### Arch Linux (AUR)
-```bash
-yay -R anisama-cli
-# or
-paru -R anisama-cli
-```
-
-### Other Linux
 ```bash
 sudo rm /usr/local/bin/anisama-cli
-rm -rf ~/.local/share/anisama-cli
+rm -rf ~/.local/share/animesama-cli
 ```
 
-### Windows
-```powershell
-# Remove from PATH and delete files
-Remove-Item -Recurse -Force "$env:USERPROFILE\anisama-cli"
-```
-
-</details>
+---
 
 ## Dependencies
 
-### 🐍 Python Dependencies
-- **requests**: HTTP library for web requests
-- **beautifulsoup4**: HTML/XML parser for anime-sama.fr scraping  
-- **sqlite3**: Database for watch history (built-in)
-- **re, json, sys, os**: Standard library modules (built-in)
+| Dependency | Purpose | Install |
+|-----------|---------|---------|
+| `python3` | Runtime | built-in on most distros |
+| `fzf` | Interactive fuzzy selection | `sudo apt install fzf` |
+| `mpv` | Video playback | `sudo apt install mpv` |
+| `python3-requests` | HTTP requests | `sudo apt install python3-requests` |
+| `python3-bs4` | HTML parsing | `sudo apt install python3-bs4` |
+| `yt-dlp` | Optional — episode titles | `sudo apt install yt-dlp` |
 
-### 🛠️ System Dependencies
-- **python3**: Python runtime (≥3.6)
-- **fzf**: Fuzzy finder for interactive selection
-- **mpv**: Media player for video playback
-- **curl**: For installation scripts
-- **git**: For repository cloning
+> **Note:** `sqlite3`, `re`, `os`, `sys` are part of Python's standard library — no extra install needed.
 
-### 📦 Installation Commands
-
-<details>
-<summary>🐧 Ubuntu/Debian</summary>
-
-```bash
-sudo apt update
-sudo apt install python3 python3-pip mpv fzf curl git
-pip3 install requests beautifulsoup4
-```
-</details>
-
-<details>
-<summary>🎩 Fedora</summary>
-
-```bash
-sudo dnf install python3 python3-pip mpv fzf curl git
-pip3 install requests beautifulsoup4
-```
-</details>
-
-<details>
-<summary>🦎 openSUSE</summary>
-
-```bash
-sudo zypper install python3 python3-pip mpv fzf curl git
-pip3 install requests beautifulsoup4
-```
-</details>
-
-<details>
-<summary>🍎 macOS</summary>
-
-```bash
-brew install python mpv fzf curl git
-pip3 install requests beautifulsoup4
-```
-</details>
+---
 
 ## FAQ
 
 <details>
-<summary>❓ <strong>Frequently Asked Questions</strong></summary>
+<summary><strong>Some anime don't play / Vidmoly errors</strong></summary>
 
-### General Questions
+Some anime (Naruto, Boruto...) use the Vidmoly streaming service which may be geo-blocked.
 
-**Q: Can I change subtitle language or turn them off?**  
-A: No, the subtitles are embedded in the video files from anime-sama.fr.
-
-**Q: Can I watch with French voice?**  
-A: Yes! Use the `--vf` flag: `anisama-cli "anime name" --vf` 🇫🇷
-
-**Q: Can I change dub language to English/Japanese?**  
-A: No, anime-sama.fr only provides French content (VF/VOSTFR).
-
-**Q: Can I change the media source?**  
-A: No, anisama-cli is specifically designed for anime-sama.fr.
-
-**Q: Can I use VLC instead of mpv?**  
-A: No, only mpv is supported for optimal streaming performance.
-
-**Q: Does it work on mobile/Android?**  
-A: No, anisama-cli is designed for desktop/terminal environments.
-
-### Technical Questions
-
-**Q: Why fzf over the original textual interface?**  
-A: fzf provides faster searching, better UX, and matches ani-cli's familiar interface.
-
-**Q: Is my watch history saved?**  
-A: Yes, your progress is saved locally and you can continue with `-c`.
-
-**Q: Does it require internet connection?**  
-A: Yes, it streams content from anime-sama.fr in real-time.
+**Solutions:**
+1. Try the VF version: `anisama-cli --vf naruto` (uses Sibnet, more reliable)
+2. Use a VPN
+3. Check which service an anime uses: `anisama-cli --check-services`
 
 </details>
 
-## Other Language CLI
+<details>
+<summary><strong>Can I watch with French voice?</strong></summary>
 
-Looking for anime in other languages? Check out these amazing projects:
+Yes! Add `--vf` to your command:
+```bash
+anisama-cli --vf "one piece"
+```
 
-- **🇯🇵 [ani-cli](https://github.com/pystardust/ani-cli)**: Japanese voice with English subtitles
-- **🇵🇹 [GoAnime](https://github.com/alvarorichard/GoAnime)**: Japanese voice with Portuguese subtitles  
-- **🇵🇱 [doccli](https://github.com/TowarzyszFatCat/doccli)**: Japanese voice with Polish subtitles
-- **🇩🇪 [aniworld-cli](https://github.com/Bog13/aniworld-cli)**: German anime streaming
-- **🇪🇸 [animeflv-cli](https://github.com/usuario/animeflv-cli)**: Spanish anime streaming
+</details>
 
-## Contributing
+<details>
+<summary><strong>Where is my watch history stored?</strong></summary>
 
-We welcome contributions! Here's how you can help:
+In a local SQLite database: `~/.local/share/animesama-cli/history.db`
 
-### 🐛 Bug Reports
-- Use [GitHub Issues](https://github.com/karbonedev/anisama-cli/issues)
-- Include steps to reproduce
-- Provide system info (OS, Python version)
+Resume where you left off with `anisama-cli -c`.
 
-### 💡 Feature Requests  
-- Check existing issues first
-- Describe the use case clearly
-- Consider backward compatibility
+</details>
 
-### 🔧 Pull Requests
-- Fork the repository
-- Create a feature branch
-- Follow existing code style
-- Test your changes
-- Update documentation if needed
+<details>
+<summary><strong>Can I use VLC instead of mpv?</strong></summary>
 
-### 📝 Documentation
-- Fix typos or improve clarity
-- Add examples for new features
-- Translate to other languages
+No. mpv is required for its HLS streaming support and command-line playback options.
+
+</details>
+
+<details>
+<summary><strong>Does it work on Windows?</strong></summary>
+
+Not officially supported. It requires `fzf`, `mpv`, and Python 3 — all available on WSL (Windows Subsystem for Linux).
+
+</details>
+
+---
+
+## Similar Projects
+
+- **🇯🇵 [ani-cli](https://github.com/pystardust/ani-cli)** — Japanese/English subtitles
+- **🇵🇹 [GoAnime](https://github.com/alvarorichard/GoAnime)** — Portuguese subtitles
+- **🇩🇪 [aniworld-cli](https://github.com/Bog13/aniworld-cli)** — German streaming
 
 ---
 
 <p align="center">
 <strong>⭐ Star this project if you find it useful!</strong><br>
-<em>Built with ❤️ by <a href="https://github.com/can-oktay404">Can Oktay</a></em><br>
-<small>Original inspiration from <a href="https://github.com/pystardust/ani-cli">ani-cli</a> 🙏</small>
+<em>Built by <a href="https://github.com/can-oktay404">can-oktay404</a> — inspired by <a href="https://github.com/pystardust/ani-cli">ani-cli</a></em>
 </p>
