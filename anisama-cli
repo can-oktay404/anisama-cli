@@ -391,20 +391,30 @@ class AnimeDownloader:
             arrays = re.findall(array_pattern, content, re.DOTALL)
 
             if arrays:
-                best_server = None
-                best_episodes = []
+                best_sibnet = []
+                best_vidmoly = []
                 for _, array_content in arrays:
-                    sibnet = list(re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', array_content))
-                    if sibnet and not best_server:
-                        best_server = 'sibnet'
-                        best_episodes = [(m.group(1), 'sibnet') for m in sibnet]
-                        self.debug_print(f"{len(sibnet)} épisodes Sibnet")
-                        break
-                    vidmoly = list(re.finditer(r'https://vidmoly\.to/embed-([^.]+)\.html', array_content))
-                    if vidmoly and not best_server:
-                        best_server = 'vidmoly'
-                        best_episodes = [(m.group(1), 'vidmoly') for m in vidmoly]
-                        self.debug_print(f"{len(vidmoly)} épisodes Vidmoly")
+                    sibnet = [(m.group(1), 'sibnet') for m in re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', array_content)]
+                    if len(sibnet) > len(best_sibnet):
+                        best_sibnet = sibnet
+                    vidmoly = [(m.group(1), 'vidmoly') for m in re.finditer(r'https://vidmoly\.to/embed-([^.]+)\.html', array_content)]
+                    if len(vidmoly) > len(best_vidmoly):
+                        best_vidmoly = vidmoly
+
+                # Préférer Sibnet sauf si Vidmoly a nettement plus d'épisodes
+                if best_sibnet and len(best_sibnet) >= len(best_vidmoly) * 0.8:
+                    best_server = 'sibnet'
+                    best_episodes = best_sibnet
+                elif best_vidmoly:
+                    best_server = 'vidmoly'
+                    best_episodes = best_vidmoly
+                elif best_sibnet:
+                    best_server = 'sibnet'
+                    best_episodes = best_sibnet
+                else:
+                    best_server = None
+                    best_episodes = []
+                self.debug_print(f"{len(best_episodes)} épisodes ({best_server}), sibnet={len(best_sibnet)}, vidmoly={len(best_vidmoly)}")
 
                 if best_episodes:
                     count = min(len(ep_names), len(best_episodes)) if ep_names else len(best_episodes)
