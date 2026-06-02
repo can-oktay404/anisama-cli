@@ -14,7 +14,7 @@ from collections import OrderedDict
 # ===== COULEURS ANSI =====
 RED = R = '\033[91m'
 GREEN = G = '\033[92m'
-YELLOW = Y = '\033[93m' 
+YELLOW = Y = '\033[93m'
 BLUE = B = '\033[94m'
 MAGENTA = M = '\033[95m'
 CYAN = C = '\033[96m'
@@ -22,210 +22,16 @@ WHITE = W = '\033[97m'
 RESET = X = '\033[0m'
 BOLD = '\033[1m'
 
-# Version du programme
-__version__ = "1.3.3"
+__version__ = "1.3.5"
 
-# Configuration
-MAX_CACHE_SIZE = 100     # Max URLs in cache (optimal for sessions)
-CACHE_TTL = 900          # Cache lifetime: 15 minutes
+MAX_CACHE_SIZE = 100
+CACHE_TTL = 900
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 10
-PLAYBACK_TIMEOUT = 7200  # 2 hours
+PLAYBACK_TIMEOUT = 7200
 
-# Pre-compiled regex patterns for performance
 PANNEAU_PATTERN = re.compile(r'panneauAnime\("([^"]+)",\s*"([^"]+)"\)')
 EPISODE_FILEVER_PATTERN = re.compile(r'episodes\.js\?filever=(\d+)')
-
-def show_banner():
-    # Clear terminal for clean interface (secure, no shell)
-    sys.stdout.write('\033[2J\033[H')
-    sys.stdout.flush()
-    print()
-    print(BOLD + CYAN + "  🎬 ANISAMA-CLI" + RESET + CYAN + " v" + __version__ + RESET)
-    print(GREEN + "  ─────────────────────────" + RESET)
-    print(YELLOW + "  💡 --vf" + RESET + " = VF only  |  " + YELLOW + "🚀 -c" + RESET + " = Continue")
-    print(CYAN + "  📖 -h" + RESET + " for more help")
-    print()
-
-def check_deps():
-    print(BLUE + "🔍 Checking dependencies..." + RESET)
-    missing = []
-    warnings = []
-    
-    def check_command(cmd, name):
-        try:
-            result = subprocess.run([cmd, "--version"], capture_output=True, timeout=3, text=True)
-            if result.returncode == 0:
-                print(GREEN + f"  ✓ {name}" + RESET)
-                return True
-        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.CalledProcessError):
-            pass
-        missing.append(name)
-        print(RED + f"  ✗ {name}" + RESET)
-        return False
-    
-    # Check essential tools
-    fzf_ok = check_command("fzf", "fzf")
-    mpv_ok = check_command("mpv", "mpv")
-    
-    # yt-dlp is optional, just warn if missing
-    if not check_command("yt-dlp", "yt-dlp"):
-        warnings.append("yt-dlp (optional, for some advanced features)")
-        missing.pop()  # Remove from missing since it's optional
-    
-    # Check python deps
-    try:
-        import requests
-        print(GREEN + f"  ✓ requests" + RESET)
-    except ImportError:
-        missing.append("python-requests")
-        print(RED + "  ✗ requests" + RESET)
-    
-    try:
-        import bs4
-        print(GREEN + f"  ✓ beautifulsoup4" + RESET)
-    except ImportError:
-        missing.append("python-beautifulsoup4")
-        print(RED + "  ✗ beautifulsoup4" + RESET)
-    
-    if missing:
-        show_error_with_solutions('deps', f"Missing: {', '.join(missing)}")
-        if not fzf_ok or not mpv_ok:
-            die("Critical dependencies missing")
-    elif warnings:
-        print(YELLOW + f"  ⚠ Optional: {', '.join(warnings)}" + RESET)
-    
-    if not missing:
-        print(GREEN + "  ✓ Ready!" + RESET)
-    print()
-
-def check_connectivity():
-    """Check connectivity to streaming services with retry logic"""
-    print(BLUE + "🌐 Checking streaming services..." + RESET)
-    
-    def test_service(url, name, retries=2):
-        for attempt in range(retries + 1):
-            try:
-                response = requests.get(url, timeout=8, headers=HEADERS_BASE)
-                if response.status_code == 200:
-                    print(GREEN + f"✓ {name} accessible" + RESET)
-                    return True
-                else:
-                    print(YELLOW + f"⚠ {name} responds with status {response.status_code}" + RESET)
-                    return False
-            except requests.exceptions.Timeout:
-                if attempt < retries:
-                    print(YELLOW + f"⏳ {name} timeout, retrying..." + RESET)
-                    time.sleep(1)
-                    continue
-                print(YELLOW + f"⚠ {name} timeout after {retries + 1} attempts" + RESET)
-                return False
-            except requests.exceptions.ConnectionError:
-                print(RED + f"✗ {name} connection failed" + RESET)
-                return False
-            except Exception as e:
-                print(RED + f"✗ {name} error: {str(e)[:50]}..." + RESET)
-                return False
-        return False
-    
-    # Test both services
-    sibnet_ok = test_service("https://video.sibnet.ru/", "Sibnet")
-    vidmoly_ok = test_service("https://vidmoly.net/", "Vidmoly") or test_service("https://vidmoly.to/", "Vidmoly (fallback)")
-    
-    if not sibnet_ok and not vidmoly_ok:
-        print(YELLOW + "  💡 Network issues detected. Some animes may not work." + RESET)
-    elif not vidmoly_ok:
-        print(YELLOW + "  💡 Vidmoly issues detected. Try VPN for Naruto-type animes." + RESET)
-
-# Utility functions for ani-cli style interface
-def fzf_select(items, prompt="Select: ", multi=False):
-    """Use fzf for selection like ani-cli"""
-    if not items:
-        return None
-    
-    if len(items) == 1:
-        return items[0]
-    
-    # Prepare input for fzf
-    fzf_input = "\n".join(items)
-    
-    cmd = ["fzf", "--reverse", "--cycle", f"--prompt={prompt}"]
-    if multi:
-        cmd.append("-m")
-    
-    try:
-        result = subprocess.run(
-            cmd,
-            input=fzf_input,
-            text=True,
-            capture_output=True
-        )
-        
-        if result.returncode == 0:
-            selected = result.stdout.strip()
-            if multi:
-                return selected.split('\n') if selected else []
-            return selected
-        return None
-    except FileNotFoundError:
-        print(RED + "✗ fzf not found! Please install fzf." + RESET)
-        return None
-    except Exception as e:
-        print(RED + f"✗ Selection error: {e}" + RESET)
-        return None
-
-def die(message, suggestion=None):
-    """Print error and exit like ani-cli with helpful suggestions"""
-    print(f"\r{RED}✗ {message}{RESET}", file=sys.stderr)
-    if suggestion:
-        print(f"{YELLOW}💡 Suggestion: {suggestion}{RESET}", file=sys.stderr)
-    sys.exit(1)
-
-def show_error_with_solutions(error_type, details=None):
-    """Show error with multiple solutions"""
-    error_solutions = {
-        'network': [
-            "Check your internet connection",
-            "Try using a VPN if content is geo-blocked",
-            "Wait a moment and try again"
-        ],
-        'no_results': [
-            "Try a different search term",
-            "Check spelling of anime name", 
-            "Use --vf flag for French dub versions",
-            "Try searching in English or Japanese romanization"
-        ],
-        'playback': [
-            "Ensure mpv is properly installed",
-            "Try a different episode or anime",
-            "Check if the streaming service is accessible",
-            "Use VPN if you see Vidmoly errors"
-        ],
-        'deps': [
-            "Install missing dependencies: sudo apt install fzf mpv yt-dlp",
-            "Install Python packages: pip install requests beautifulsoup4",
-            "Check if all commands are in your PATH"
-        ]
-    }
-    
-    if error_type in error_solutions:
-        print(f"{YELLOW}💡 Try these solutions:{RESET}")
-        for i, solution in enumerate(error_solutions[error_type], 1):
-            print(f"   {i}. {solution}")
-        if details:
-            print(f"{BLUE}Details: {details}{RESET}")
-    print()
-
-def search_prompt():
-    """Interactive search prompt like ani-cli"""
-    while True:
-        try:
-            query = input(f"\033[1;36mSearch anime: \033[0m").strip()
-            if query:
-                return query
-        except (EOFError, KeyboardInterrupt):
-            print()
-            sys.exit(0)
 
 HEADERS_BASE = {
     "user-agent": "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0",
@@ -233,1346 +39,904 @@ HEADERS_BASE = {
     "connection": "keep-alive"
 }
 
+
+def show_banner():
+    sys.stdout.write('\033[2J\033[H')
+    sys.stdout.flush()
+    print()
+    print(f"  {BOLD}{MAGENTA}▶{RESET} {BOLD}{WHITE}ANISAMA{RESET}{CYAN}-CLI{RESET}  {WHITE}v{__version__}{RESET}")
+    print(f"  {CYAN}{'─' * 32}{RESET}")
+    print(f"  {YELLOW}-h{RESET} aide   {YELLOW}--vf{RESET} VF/Dub   {YELLOW}-c{RESET} historique")
+    print()
+
+
+def check_deps():
+    missing = []
+    optional_missing = []
+
+    def check_cmd(cmd, name, optional=False):
+        try:
+            subprocess.run([cmd, "--version"], capture_output=True, timeout=3)
+            return True
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            (optional_missing if optional else missing).append(name)
+            return False
+
+    check_cmd("fzf", "fzf")
+    check_cmd("mpv", "mpv")
+    check_cmd("yt-dlp", "yt-dlp", optional=True)
+
+    try:
+        import requests  # noqa: F401
+    except ImportError:
+        missing.append("python3-requests")
+
+    try:
+        import bs4  # noqa: F401
+    except ImportError:
+        missing.append("python3-bs4")
+
+    if missing:
+        print(f"{RED}✗ Dépendances manquantes : {', '.join(missing)}{RESET}")
+        print(f"{YELLOW}  sudo apt install {' '.join(missing)}{RESET}")
+        sys.exit(1)
+
+    if optional_missing:
+        print(f"{YELLOW}  ⚠ Optionnel manquant : {', '.join(optional_missing)}{RESET}")
+        print()
+
+
+def fzf_select(items, prompt="Sélection : ", multi=False):
+    if not items:
+        return None
+    if len(items) == 1:
+        return items[0]
+    cmd = ["fzf", "--reverse", "--cycle", f"--prompt={prompt}"]
+    if multi:
+        cmd.append("-m")
+    try:
+        result = subprocess.run(cmd, input="\n".join(items), text=True, capture_output=True)
+        if result.returncode == 0:
+            selected = result.stdout.strip()
+            return selected.split('\n') if multi else selected
+        return None
+    except FileNotFoundError:
+        print(f"{RED}✗ fzf introuvable — sudo apt install fzf{RESET}")
+        return None
+    except Exception as e:
+        print(f"{RED}✗ Erreur de sélection : {e}{RESET}")
+        return None
+
+
+def die(message, suggestion=None):
+    print(f"\r{RED}✗ {message}{RESET}", file=sys.stderr)
+    if suggestion:
+        print(f"{YELLOW}💡 {suggestion}{RESET}", file=sys.stderr)
+    sys.exit(1)
+
+
+def show_error(error_type, details=None):
+    solutions = {
+        'network': [
+            "Vérifiez votre connexion internet",
+            "Essayez un VPN si le contenu est géo-bloqué",
+            "Attendez un moment puis réessayez",
+        ],
+        'no_results': [
+            "Essayez un terme de recherche différent",
+            "Vérifiez l'orthographe du nom d'anime",
+            "Utilisez --vf pour les versions doublées",
+            "Essayez en anglais ou en romaji",
+        ],
+        'playback': [
+            "Vérifiez que mpv est bien installé",
+            "Essayez un autre épisode ou anime",
+            "Utilisez un VPN si Vidmoly est bloqué",
+        ],
+        'deps': [
+            "sudo apt install fzf mpv yt-dlp",
+            "pip install requests beautifulsoup4",
+        ],
+    }
+    if error_type in solutions:
+        print(f"{YELLOW}💡 Solutions :{RESET}")
+        for i, s in enumerate(solutions[error_type], 1):
+            print(f"   {i}. {s}")
+        if details:
+            print(f"{BLUE}Détails : {details}{RESET}")
+    print()
+
+
+def search_prompt():
+    while True:
+        try:
+            query = input(f"  {BOLD}{CYAN}Recherche{RESET} {CYAN}›{RESET} ").strip()
+            if query:
+                return query
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+
+
+# ── Base de données historique ────────────────────────────────────────────────
+
 def get_db_path():
     db_dir = os.path.expanduser("~/.local/share/animesama-cli")
     os.makedirs(db_dir, exist_ok=True)
     return os.path.join(db_dir, "history.db")
 
+
 def init_db():
-    """Initialize SQLite database for viewing history"""
     with sqlite3.connect(get_db_path()) as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            anime_name TEXT NOT NULL,
-            episode TEXT NOT NULL,
-            saison TEXT NOT NULL,
-            url TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS history (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                anime_name TEXT NOT NULL,
+                episode    TEXT NOT NULL,
+                saison     TEXT NOT NULL,
+                url        TEXT NOT NULL,
+                timestamp  DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
         ''')
         conn.commit()
 
+
 def add_to_history(anime_name, episode, saison, url):
-    """Add or update anime viewing history"""
     try:
         init_db()
         with sqlite3.connect(get_db_path()) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id FROM history WHERE anime_name = ? AND saison = ?", 
+            row = conn.execute(
+                "SELECT id FROM history WHERE anime_name = ? AND saison = ?",
                 (anime_name, saison)
-            )
-            existing_entry = cursor.fetchone()
-            if existing_entry:
-                cursor.execute(
+            ).fetchone()
+            if row:
+                conn.execute(
                     "UPDATE history SET episode = ?, timestamp = CURRENT_TIMESTAMP WHERE id = ?",
-                    (episode, existing_entry[0])
+                    (episode, row[0])
                 )
-                print(GREEN + "✓ History updated" + RESET)
             else:
-                cursor.execute(
+                conn.execute(
                     "INSERT INTO history (anime_name, episode, saison, url) VALUES (?, ?, ?, ?)",
                     (anime_name, episode, saison, url)
                 )
-                print(GREEN + "✓ Added to history" + RESET)
             conn.commit()
     except Exception as e:
-        print(YELLOW + f"⚠ History error: {e}" + RESET)
+        print(f"{YELLOW}⚠ Historique : {e}{RESET}")
+
 
 def get_history_entries():
-    """Get all history entries sorted by timestamp"""
     db_path = get_db_path()
     if not os.path.exists(db_path):
         return []
     with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, anime_name, episode, saison, url FROM history ORDER BY timestamp DESC")
-        entries = cursor.fetchall()
-    return entries
+        return conn.execute(
+            "SELECT id, anime_name, episode, saison, url FROM history ORDER BY timestamp DESC"
+        ).fetchall()
+
+
+# ── Extraction données site ───────────────────────────────────────────────────
 
 def get_seasons(html_content):
-    """Extract seasons from anime page HTML"""
     seasons = []
-    matches = PANNEAU_PATTERN.findall(html_content)
-    if not matches:
-        return []
-    for name, path in matches:
+    for name, path in PANNEAU_PATTERN.findall(html_content):
         if "film" not in name.lower() and name.lower() != "nom":
-            seasons.append({
-                'name': name,
-                'url': path
-            })
+            seasons.append({'name': name, 'url': path})
     return seasons
 
+
 def get_episode_list(url):
-    """Extract episode file version from anime season page"""
     url = url.replace('https://', '')
     headers = {
-        "host": "anime-sama.fr",
-        "user-agent": "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0",
+        "host": "anime-sama.to",
+        "user-agent": HEADERS_BASE["user-agent"],
         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "accept-language": "en-US,en;q=0.5",
+        "accept-language": "fr-FR,fr;q=0.9",
         "connection": "keep-alive",
-        "upgrade-insecure-requests": "1",
-        "sec-fetch-dest": "document",
-        "sec-fetch-mode": "navigate",
-        "sec-fetch-site": "same-origin",
-        "sec-fetch-user": "?1"
     }
     try:
-        response = requests.get(f"https://{url}", headers=headers)
-        content = response.text
-        match = EPISODE_FILEVER_PATTERN.search(content)
-        if match:
-            return match.group(1)
-        return None
+        response = requests.get(f"https://{url}", headers=headers, timeout=REQUEST_TIMEOUT)
+        match = EPISODE_FILEVER_PATTERN.search(response.text)
+        return match.group(1) if match else None
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"{RED}✗ Erreur récupération épisodes : {e}{RESET}")
         return None
 
+
+# ── Classe principale ─────────────────────────────────────────────────────────
+
 class AnimeDownloader:
-    # Pré-compiler les regex pour +60% performance
     SCRIPT_PATTERN = re.compile(r'creerListe\((\d+),\s*(\d+)\);\s*newSPF?\(["\']([^"\']+)["\']\);?')
     CREER_PATTERN = re.compile(r'creerListe\((\d+),\s*(\d+)\);')
     FINIR_PATTERN = re.compile(r'finirListeOP?\((\d+)\);')
     TAILLE_PATTERN = re.compile(r'var\s+tailleEpisodes\s*=\s*(\d+)')
     RETARDS_PATTERN = re.compile(r'var\s+epRetards\s*=\s*(\d+)')
-    
-    def __init__(self, debug=False, use_metadata=False):
+
+    def __init__(self, debug=False):
         self.session = requests.Session()
         self.session.headers.update(HEADERS_BASE)
         self.debug = debug
-        self.use_metadata = use_metadata
         self._cache = OrderedDict()
-        self._cache_ttl = CACHE_TTL
-        
+
     def debug_print(self, *args, **kwargs):
         if self.debug:
             print("[DEBUG]", *args, **kwargs)
-    
-    def _get_cache_key(self, url, params=None):
-        """Generate cache key for requests"""
-        key = url
-        if params:
-            sorted_params = sorted(params.items()) if isinstance(params, dict) else params
-            key += str(sorted_params)
-        return key
-    
-    def _is_cache_valid(self, timestamp):
-        """Check if cache entry is still valid"""
-        return time.time() - timestamp < self._cache_ttl
-    
+
     def _cached_request(self, method, url, **kwargs):
-        """Make cached HTTP request with retry logic"""
-        cache_key = self._get_cache_key(url, kwargs.get('params'))
-        
-        # Check cache
-        if cache_key in self._cache:
-            cached_data, timestamp = self._cache[cache_key]
-            if self._is_cache_valid(timestamp):
-                self.debug_print(f"Cache hit for {url[:50]}...")
-                return cached_data
-        
-        # Make request with retry logic
+        key = url + str(sorted(kwargs.get('params', {}).items()))
+        if key in self._cache:
+            cached, ts = self._cache[key]
+            if time.time() - ts < CACHE_TTL:
+                self.debug_print(f"Cache hit : {url[:60]}")
+                return cached
         for attempt in range(MAX_RETRIES):
             try:
-                response = getattr(self.session, method.lower())(url, timeout=REQUEST_TIMEOUT, **kwargs)
-                response.raise_for_status()
-                
-                # Cache successful response
-                self._cache[cache_key] = (response, time.time())
-                self._cache.move_to_end(cache_key)
-                
+                resp = getattr(self.session, method)(url, timeout=REQUEST_TIMEOUT, **kwargs)
+                resp.raise_for_status()
+                self._cache[key] = (resp, time.time())
+                self._cache.move_to_end(key)
                 if len(self._cache) > MAX_CACHE_SIZE:
                     self._cache.popitem(last=False)
-                
-                return response
-                
+                return resp
             except requests.exceptions.Timeout:
                 if attempt < MAX_RETRIES - 1:
-                    self.debug_print(f"Timeout attempt {attempt + 1}, retrying...")
+                    self.debug_print(f"Timeout tentative {attempt + 1}, retry...")
                     time.sleep(1)
                     continue
                 raise
             except requests.exceptions.RequestException as e:
                 if attempt < MAX_RETRIES - 1 and "Connection" in str(e):
-                    self.debug_print(f"Connection error attempt {attempt + 1}, retrying...")
+                    self.debug_print(f"Erreur connexion tentative {attempt + 1}, retry...")
                     time.sleep(2)
                     continue
                 raise
 
-    def _generate_episode_name(self, episode_number, anime_name=""):
-        """Generate simple episode names"""
-        return f"Episode {episode_number}"
-    
-    def _extract_episode_info_from_content(self, content, complete_url):
-        """Extract episode information including special episodes from content"""
-        episode_info = {
-            'start_episode': 1,
-            'special_episodes': {},  # {position: special_name}
-            'episode_names': {}      # {position: custom_name}
-        }
-        
-        try:
-            # Method 1: Look for current episode in the HTML
-            current_episode_match = re.search(r'EPISODE\s+(\d+)', content, re.IGNORECASE)
-            if current_episode_match:
-                current_ep = int(current_episode_match.group(1))
-                self.debug_print(f"Found current episode: {current_ep}")
-            
-            # Method 2: Look for special episodes patterns
-            special_patterns = [
-                r'egghead[_\s]*sp[_\s]*(\d*)',  # Egghead SP, Egghead SP 1, etc.
-                r'sp[_\s]*(\d+)',               # SP 1, SP 2, etc.
-                r'special[_\s]*(\d*)',          # Special, Special 1, etc.
-                r'ova[_\s]*(\d*)',              # OVA, OVA 1, etc.
-                r'(\w+)[_\s]*sp[_\s]*(\d*)',    # Arc_Name SP, Arc_Name SP 1
-            ]
-            
-            # Search for special episodes in the content
-            for pattern in special_patterns:
-                matches = re.finditer(pattern, content, re.IGNORECASE)
-                for match in matches:
-                    special_name = match.group(0).strip()
-                    self.debug_print(f"Found special episode pattern: {special_name}")
-                    # We'll map these later when we know the episode structure
-            
-            # Method 3: Analyze URL and content for starting episode
-            if "one-piece" in complete_url.lower() and "saison11" in complete_url.lower():
-                episode_info['start_episode'] = 1082
-                # One Piece saison 11 has Egghead SP episodes
-                self.debug_print("One Piece saison 11 detected - looking for Egghead SP episodes")
-            elif "one-piece" in complete_url.lower() and "saison10" in complete_url.lower():
-                episode_info['start_episode'] = 1015
-            elif "one-piece" in complete_url.lower() and "saison9" in complete_url.lower():
-                episode_info['start_episode'] = 958
-            elif "one-piece" in complete_url.lower():
-                # Pour les autres saisons de One Piece, essayer de détecter
-                episode_info['start_episode'] = self._detect_episode_start_pattern(complete_url, content)
-            else:
-                # Pour tous les autres animes, commencer à 1 par défaut
-                episode_info['start_episode'] = 1
-                self.debug_print("Using default starting episode: 1")
-            
-            self.debug_print(f"Detected starting episode: {episode_info['start_episode']}")
-            return episode_info
-            
-        except Exception as e:
-            self.debug_print(f"Error extracting episode info: {e}")
-            return episode_info
-    
-    def _extract_episodes_from_selector(self, content):
-        """Extract episode list by parsing the JavaScript that generates the episode selector"""
-        episode_list = []
-        
-        try:
-            # First try to parse the JavaScript that creates the episode list
-            episode_list = self._extract_episodes_from_javascript(content)
-            if episode_list:
-                self.debug_print(f"Successfully extracted {len(episode_list)} episodes from JavaScript")
-                return episode_list
-            
-            # Fallback: try to extract from HTML selector (if already populated)
-            soup = BeautifulSoup(content, 'html.parser')
-            
-            # Find the episode selector
-            episode_selector = soup.find('select', {'id': 'selectEpisodes'})
-            if not episode_selector:
-                # Try alternative selectors
-                episode_selector = soup.find('select', class_=lambda x: x and 'episode' in x.lower())
-            
-            if episode_selector:
-                options = episode_selector.find_all('option')
-                self.debug_print(f"Found episode selector with {len(options)} options")
-                
-                for option in options:
-                    episode_text = option.get_text(strip=True)
-                    if episode_text:
-                        episode_list.append(episode_text)
-                        self.debug_print(f"Found episode: {episode_text}")
-                
-                return episode_list
-            else:
-                self.debug_print("No episode selector found in HTML")
-                return []
-                
-        except ImportError:
-            self.debug_print("BeautifulSoup not available for HTML parsing")
-            # Fallback: use regex to extract from HTML
-            return self._extract_episodes_from_html_regex(content)
-        except Exception as e:
-            self.debug_print(f"Error extracting episodes from selector: {e}")
-            return []
-    
+    # ── Extraction liste épisodes depuis le JavaScript ────────────────────────
+
     def _extract_episodes_from_javascript(self, content):
-        """Parse the JavaScript code that generates the episode list"""
         episode_list = []
-        
         try:
-            # Utiliser les regex pré-compilées (+60% plus rapide)
             special_matches = self.SCRIPT_PATTERN.findall(content)
             regular_matches = self.CREER_PATTERN.findall(content)
             finir_match = self.FINIR_PATTERN.search(content)
-            
-            self.debug_print(f"Found {len(special_matches)} special episode blocks, {len(regular_matches)} regular blocks")
-            
-            if special_matches or regular_matches:
-                # Parse special episode blocks (creerListe + newSP)
-                for start_ep, end_ep, special_name in special_matches:
-                    start_num = int(start_ep)
-                    end_num = int(end_ep)
-                    
-                    # Add regular episodes in this range
-                    for ep_num in range(start_num, end_num + 1):
-                        episode_list.append(f"Episode {ep_num}")
-                    
-                    # Add the special episode after this range
-                    episode_list.append(special_name)
-                    self.debug_print(f"Added episodes {start_num}-{end_num} + special '{special_name}'")
-                
-                # Parse any remaining regular blocks
-                all_special_ranges = set()
-                for start_ep, end_ep, _ in special_matches:
-                    for ep in range(int(start_ep), int(end_ep) + 1):
-                        all_special_ranges.add(ep)
-                
-                for start_ep, end_ep in regular_matches:
-                    start_num = int(start_ep)
-                    end_num = int(end_ep)
-                    
-                    # Only add if not already covered by special blocks
-                    if start_num not in all_special_ranges:
-                        for ep_num in range(start_num, end_num + 1):
-                            episode_list.append(f"Episode {ep_num}")
-                        self.debug_print(f"Added regular episodes {start_num}-{end_num}")
-                
-                # Handle finirListe (adds remaining episodes from start to end)
-                if finir_match:
-                    start_finir = int(finir_match.group(1))
-                    
-                    # Try to find the actual end episode from JavaScript variables
-                    end_finir = None
-                    
-                    # Method 1: Look for tailleEpisodes variable (regex pré-compilée)
-                    taille_match = self.TAILLE_PATTERN.search(content)
-                    if taille_match:
-                        total_episodes = int(taille_match.group(1))
-                        # Check for epRetards (delayed episodes count)
-                        retards_match = self.RETARDS_PATTERN.search(content)
-                        retards = int(retards_match.group(1)) if retards_match else 0
-                        end_finir = total_episodes - retards
-                        self.debug_print(f"Found tailleEpisodes={total_episodes}, epRetards={retards}, end_finir={end_finir}")
-                    
-                    # Method 2: Look for episodes.length or similar
-                    if not end_finir:
-                        length_match = re.search(r'episodes\.length\s*=\s*(\d+)', content)
-                        if length_match:
-                            end_finir = int(length_match.group(1))
-                            self.debug_print(f"Found episodes.length={end_finir}")
-                    
-                    # Method 3: Look for the highest episode number in existing episodes
-                    if not end_finir:
-                        max_existing = 0
-                        if episode_list:
-                            for ep in episode_list:
-                                if ep.startswith("Episode "):
-                                    try:
-                                        ep_num = int(ep.split()[1])
-                                        max_existing = max(max_existing, ep_num)
-                                    except (ValueError, IndexError):
-                                        pass
-                        # Use max_existing + reasonable buffer for new episodes
-                        end_finir = max(start_finir + 20, max_existing + 5)
-                        self.debug_print(f"Using estimated end_finir={end_finir} based on max_existing={max_existing}")
-                    
-                    # Fallback: if still no end_finir, use start + 50 for long-running series
-                    if not end_finir:
-                        end_finir = start_finir + 50
-                        self.debug_print(f"Using fallback end_finir={end_finir}")
-                    
-                    for ep_num in range(start_finir, end_finir + 1):
-                        episode_list.append(f"Episode {ep_num}")
-                    
-                    self.debug_print(f"Added final episodes {start_finir}-{end_finir} from finirListe")
-                
-                return episode_list
-            
+
+            self.debug_print(f"Blocs spéciaux : {len(special_matches)}, réguliers : {len(regular_matches)}")
+
+            if not special_matches and not regular_matches:
+                return []
+
+            covered = set()
+            for start_ep, end_ep, special_name in special_matches:
+                start, end = int(start_ep), int(end_ep)
+                for n in range(start, end + 1):
+                    episode_list.append(f"Épisode {n}")
+                    covered.add(n)
+                episode_list.append(special_name)
+
+            for start_ep, end_ep in regular_matches:
+                start, end = int(start_ep), int(end_ep)
+                if start not in covered:
+                    for n in range(start, end + 1):
+                        episode_list.append(f"Épisode {n}")
+
+            if finir_match:
+                start_finir = int(finir_match.group(1))
+                end_finir = None
+                taille = self.TAILLE_PATTERN.search(content)
+                if taille:
+                    total = int(taille.group(1))
+                    retards = int(self.RETARDS_PATTERN.search(content).group(1)) if self.RETARDS_PATTERN.search(content) else 0
+                    end_finir = total - retards
+                if not end_finir:
+                    existing_nums = [int(e.split()[-1]) for e in episode_list if e.startswith("Épisode ") and e.split()[-1].isdigit()]
+                    end_finir = max(existing_nums) + 5 if existing_nums else start_finir + 50
+                for n in range(start_finir, end_finir + 1):
+                    episode_list.append(f"Épisode {n}")
+                self.debug_print(f"finirListe : {start_finir}–{end_finir}")
+
+            return episode_list
         except Exception as e:
-            self.debug_print(f"Error parsing JavaScript episodes: {e}")
-        
-        return []
-    
-    def _extract_episodes_from_html_regex(self, content):
-        """Fallback method to extract episodes using regex"""
-        episode_list = []
-        
+            self.debug_print(f"Erreur parsing JS épisodes : {e}")
+            return []
+
+    def _extract_episodes_from_selector(self, content):
         try:
-            # Look for the select element with id="selectEpisodes"
-            selector_pattern = r'<select[^>]*id=["\']selectEpisodes["\'][^>]*>(.*?)</select>'
-            selector_match = re.search(selector_pattern, content, re.DOTALL | re.IGNORECASE)
-            
-            if selector_match:
-                selector_content = selector_match.group(1)
-                
-                # Extract all option elements
-                option_pattern = r'<option[^>]*>([^<]+)</option>'
-                options = re.findall(option_pattern, selector_content, re.IGNORECASE)
-                
-                for option_text in options:
-                    episode_text = option_text.strip()
-                    if episode_text:
-                        episode_list.append(episode_text)
-                        self.debug_print(f"Found episode (regex): {episode_text}")
-                
-                self.debug_print(f"Extracted {len(episode_list)} episodes using regex")
-            else:
-                self.debug_print("Could not find selectEpisodes in HTML")
-                
+            ep_list = self._extract_episodes_from_javascript(content)
+            if ep_list:
+                self.debug_print(f"{len(ep_list)} épisodes depuis JS")
+                return ep_list
+
+            soup = BeautifulSoup(content, 'html.parser')
+            sel = soup.find('select', {'id': 'selectEpisodes'})
+            if not sel:
+                sel = soup.find('select', class_=lambda x: x and 'episode' in x.lower())
+            if sel:
+                ep_list = [o.get_text(strip=True) for o in sel.find_all('option') if o.get_text(strip=True)]
+                self.debug_print(f"{len(ep_list)} épisodes depuis sélecteur HTML")
+                return ep_list
+
+            # Fallback regex
+            m = re.search(r'<select[^>]*id=["\']selectEpisodes["\'][^>]*>(.*?)</select>', content, re.DOTALL | re.IGNORECASE)
+            if m:
+                ep_list = [t.strip() for t in re.findall(r'<option[^>]*>([^<]+)</option>', m.group(1), re.IGNORECASE) if t.strip()]
+                self.debug_print(f"{len(ep_list)} épisodes depuis regex HTML")
+                return ep_list
+
+            return []
         except Exception as e:
-            self.debug_print(f"Error in regex episode extraction: {e}")
-            
-        return episode_list
-    
-    def _detect_episode_start_pattern(self, url, content):
-        """Detect starting episode number from various clues"""
-        try:
-            # Look for any 3-4 digit numbers that could be episode numbers
-            numbers = re.findall(r'\b(\d{3,4})\b', content)
-            if numbers:
-                nums = [int(n) for n in numbers if 100 <= int(n) <= 9999]
-                if nums:
-                    # Use the most common high number as a reference
-                    from collections import Counter
-                    common_nums = Counter(nums)
-                    if common_nums:
-                        ref_episode = common_nums.most_common(1)[0][0]
-                        # Estimate start (assuming max 100 episodes per season)
-                        return max(1, ref_episode - 80)
-            
-            # Fallback based on URL season number
-            season_match = re.search(r'saison(\d+)', url, re.IGNORECASE)
-            if season_match:
-                season_num = int(season_match.group(1))
-                # Rough estimate: 25 episodes per season on average
-                return max(1, (season_num - 1) * 25 + 1)
-                
-        except Exception:
-            pass
-        
-        return 1
-    
-    def _detect_special_episodes_from_js(self, js_content, complete_url):
-        """Detect special episodes from JavaScript content"""
-        special_episodes = {}
-        
-        try:
-            # Look for specific patterns in video URLs that indicate special episodes
-            patterns = [
-                r'egghead[_\s]*sp[_\s]*(\d*)',      # Egghead SP episodes
-                r'(\w+)[_\s]*sp[_\s]*(\d*)',        # Any Arc SP episodes
-                r'special[_\s]*(\d*)',              # Special episodes
-                r'ova[_\s]*(\d*)',                  # OVA episodes
-            ]
-            
-            # Scan through the JavaScript content for special episode indicators
-            for pattern in patterns:
-                matches = list(re.finditer(pattern, js_content, re.IGNORECASE))
-                for i, match in enumerate(matches):
-                    special_name = match.group(0).strip().replace('_', ' ').title()
-                    self.debug_print(f"Found special episode in JS: {special_name}")
-                    # We'll use this info when building episode list
-            
-            # For One Piece specifically, look for known special episode patterns
-            if "one-piece" in complete_url.lower():
-                # Look for Egghead SP pattern specifically
-                egghead_matches = re.findall(r'egghead[_\s]*sp[_\s]*(\d*)', js_content, re.IGNORECASE)
-                if egghead_matches:
-                    self.debug_print(f"Found {len(egghead_matches)} Egghead SP episodes in JS")
-                    for i, match in enumerate(egghead_matches):
-                        if match:
-                            special_episodes[f"sp_{i}"] = f"Egghead SP {match}"
-                        else:
-                            special_episodes[f"sp_{i}"] = "Egghead SP"
-            
-            return special_episodes
-            
-        except Exception as e:
-            self.debug_print(f"Error detecting special episodes: {e}")
-            return {}
-    
-    def _generate_smart_episode_name(self, episode_number, video_id, server_type, episode_info, special_episodes, complete_url):
-        """Generate smart episode names that detect special episodes from video IDs or patterns"""
-        
-        try:
-            # Method 1: Check if the video ID or URL contains special episode indicators
-            video_id_str = str(video_id).lower()
-            
-            # Look for special patterns in the video ID or generate URL to analyze
-            if server_type == 'sibnet':
-                # For Sibnet, we can try to analyze the video ID or make a quick request
-                # Look for patterns that might indicate special episodes
-                pass
-            elif server_type == 'vidmoly':
-                # For Vidmoly, the embed ID might contain clues
-                if any(pattern in video_id_str for pattern in ['sp', 'special', 'egghead', 'ova']):
-                    self.debug_print(f"Detected potential special episode in video ID: {video_id}")
-            
-            # Method 2: For One Piece specifically, detect known special episode positions
-            if "one-piece" in complete_url.lower() and "saison11" in complete_url.lower():
-                # One Piece saison 11 has known special episodes
-                # Based on the episode position, determine if it's a special episode
-                
-                # Known special episode positions for One Piece saison 11 (approximations)
-                special_positions = {
-                    5: "Egghead SP 1",    # Often around position 5
-                    # Add more as we discover them
-                }
-                
-                if episode_number in special_positions:
-                    special_name = special_positions[episode_number]
-                    self.debug_print(f"Using known special episode: {special_name}")
-                    return special_name
-            
-            # Method 3: Check for episode ranges that might be special
-            real_episode_number = episode_info['start_episode'] + episode_number - 1
-            
-            # For One Piece, check if this episode number corresponds to known specials
-            if "one-piece" in complete_url.lower():
-                # Egghead SP episodes are often numbered differently
-                # If we're in a range where specials appear, try to detect them
-                if 1090 <= real_episode_number <= 1095:  # Known range for Egghead SP
-                    # Try to determine if this is a special episode
-                    return f"Episode {real_episode_number} (Egghead Arc)"
-            
-            # Default: return normal episode number
-            return f"Episode {real_episode_number}"
-            
-        except Exception as e:
-            self.debug_print(f"Error generating smart episode name: {e}")
-            # Fallback to basic episode number
-            real_episode_number = episode_info['start_episode'] + episode_number - 1
-            return f"Episode {real_episode_number}"
-    
-    def _get_video_metadata_title(self, video_url, use_metadata=False):
-        """Try to extract episode title from video metadata using yt-dlp (only if enabled)"""
-        if not use_metadata:
-            return None
-            
-        try:
-            import subprocess
-            import json
-            
-            # Use yt-dlp to get video metadata
-            cmd = ['yt-dlp', '--no-download', '--print', 'title', video_url]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0 and result.stdout.strip():
-                title = result.stdout.strip()
-                self.debug_print(f"Got video title from metadata: {title}")
-                return title
-            
-        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.CalledProcessError):
-            pass
-        except Exception as e:
-            self.debug_print(f"Error getting video metadata: {e}")
-        
-        return None
-    
-    def _generate_enhanced_episode_name(self, episode_number, video_url=None, anime_name="", use_metadata=False):
-        """Generate episode names with enhanced information when possible"""
-        
-        # Try to get title from video metadata only if explicitly requested
-        if video_url and use_metadata:
-            metadata_title = self._get_video_metadata_title(video_url, use_metadata=True)
-            if metadata_title:
-                # Clean and format the metadata title
-                clean_title = metadata_title.strip()
-                # If it already contains episode info, use it as is
-                if re.search(r'(?:episode|ep|s\d+e\d+)', clean_title, re.IGNORECASE):
-                    return clean_title
-                else:
-                    return f"Episode {episode_number}: {clean_title}"
-        
-        # Fast fallback to simple episode name
-        return f"Episode {episode_number}"
+            self.debug_print(f"Erreur extraction épisodes : {e}")
+            return []
+
+    # ── Récupération épisodes (liens vidéo) ───────────────────────────────────
 
     def get_anime_episode(self, complete_url, filever):
         complete_url = complete_url.replace('https://', '')
-        url = f"https://{complete_url}/episodes.js"
+        js_url = f"https://{complete_url}/episodes.js"
+        all_links = {}
         try:
-            # First, try to get episode info from the main page HTML
-            episode_info = {'start_episode': 1, 'special_episodes': {}, 'episode_names': {}}
-            episode_list_from_selector = []
+            # Noms d'épisodes depuis la page principale
+            ep_names = []
             try:
-                main_page_url = f"https://{complete_url}"
-                main_response = self._cached_request('get', main_page_url)
-                if main_response.status_code == 200:
-                    episode_info = self._extract_episode_info_from_content(main_response.text, complete_url)
-                    episode_list_from_selector = self._extract_episodes_from_selector(main_response.text)
-                    self.debug_print(f"Detected episode info: start={episode_info['start_episode']}")
-                    self.debug_print(f"Found {len(episode_list_from_selector)} episodes in selector")
+                main_resp = self._cached_request('get', f"https://{complete_url}")
+                if main_resp.status_code == 200:
+                    ep_names = self._extract_episodes_from_selector(main_resp.text)
+                    self.debug_print(f"{len(ep_names)} noms d'épisodes trouvés")
             except Exception as e:
-                self.debug_print(f"Could not extract episode info from main page: {e}")
-            
-            # Get the episodes.js file
-            response = self._cached_request('get', url, params={"filever": filever})
+                self.debug_print(f"Page principale inaccessible : {e}")
+
+            # Liens vidéo depuis episodes.js
+            response = self._cached_request('get', js_url, params={"filever": filever})
             content = response.text
-            
-            # Detect special episodes from JavaScript content
-            special_episodes = self._detect_special_episodes_from_js(content, complete_url)
-            
-            # Parse episode arrays (eps1, eps2, eps3, etc.)
-            all_links = {}
-            
-            # Find all episode arrays in the JavaScript
+
             array_pattern = r'var eps(\d+) = \[(.*?)\];'
             arrays = re.findall(array_pattern, content, re.DOTALL)
-            
+
             if arrays:
-                # Choose the best single array (prefer Sibnet, then Vidmoly)
                 best_server = None
                 best_episodes = []
-                
-                for array_num, array_content in arrays:
-                    self.debug_print(f"Analyzing eps{array_num} array...")
-                    
-                    # Check for Sibnet links in this array
-                    sibnet_matches = list(re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', array_content))
-                    if sibnet_matches and not best_server:
+                for _, array_content in arrays:
+                    sibnet = list(re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', array_content))
+                    if sibnet and not best_server:
                         best_server = 'sibnet'
-                        best_episodes = [(match.group(1), 'sibnet') for match in sibnet_matches]
-                        self.debug_print(f"Found {len(sibnet_matches)} Sibnet episodes in eps{array_num} - using this array")
-                        break  # Use first Sibnet array found
-                    
-                    # Check for Vidmoly links in this array
-                    vidmoly_matches = list(re.finditer(r'https://vidmoly\.to/embed-([^.]+)\.html', array_content))
-                    if vidmoly_matches and not best_server:
+                        best_episodes = [(m.group(1), 'sibnet') for m in sibnet]
+                        self.debug_print(f"{len(sibnet)} épisodes Sibnet")
+                        break
+                    vidmoly = list(re.finditer(r'https://vidmoly\.to/embed-([^.]+)\.html', array_content))
+                    if vidmoly and not best_server:
                         best_server = 'vidmoly'
-                        best_episodes = [(match.group(1), 'vidmoly') for match in vidmoly_matches]
-                        self.debug_print(f"Found {len(vidmoly_matches)} Vidmoly episodes in eps{array_num} - using this array")
-                
-                # Now build the episodes dict with real or generated names
+                        best_episodes = [(m.group(1), 'vidmoly') for m in vidmoly]
+                        self.debug_print(f"{len(vidmoly)} épisodes Vidmoly")
+
                 if best_episodes:
-                    # Use episode list from selector if available
-                    if episode_list_from_selector:
-                        self.debug_print(f"Using episode names from selector ({len(episode_list_from_selector)} names, {len(best_episodes)} videos)")
-                        
-                        # Take only the first N episodes where N = number of episode names
-                        target_count = min(len(episode_list_from_selector), len(best_episodes))
-                        episodes_to_use = best_episodes[:target_count]
-                        episode_names_to_use = episode_list_from_selector[:target_count]
-                        self.debug_print(f"Using first {len(episodes_to_use)} episodes to match {len(episode_names_to_use)} names")
-                        
-                        # Map video episodes to episode names
-                        for i, ((video_id, server_type), episode_name) in enumerate(zip(episodes_to_use, episode_names_to_use)):
-                            episode_key = str(i + 1)
-                            all_links[episode_key] = (server_type, video_id, episode_name)
-                            self.debug_print(f"Mapped episode {episode_key}: {episode_name} ({server_type}:{video_id})")
-                    else:
-                        self.debug_print(f"Using fallback episode naming (no selector data, {len(best_episodes)} episodes)")
-                        for i, (video_id, server_type) in enumerate(best_episodes):
-                            episode_number = i + 1  # Simple 1-based numbering
-                            episode_key = str(episode_number)
-                            
-                            # Generate episode name with real episode number or special name
-                            episode_name = self._generate_smart_episode_name(episode_number, video_id, server_type, episode_info, special_episodes, complete_url)
-                            self.debug_print(f"Generated episode name for ep {episode_number}: {episode_name}")
-                            
-                            # Store both the video data and the episode name
-                            all_links[episode_key] = (server_type, video_id, episode_name)
-                    
-                    self.debug_print(f"Using {best_server} server with {len(best_episodes)} episodes")
+                    count = min(len(ep_names), len(best_episodes)) if ep_names else len(best_episodes)
+                    for i, (vid_id, srv) in enumerate(best_episodes[:count]):
+                        name = ep_names[i] if i < len(ep_names) else f"Épisode {i + 1}"
+                        all_links[str(i + 1)] = (srv, vid_id, name)
+                    self.debug_print(f"{len(all_links)} épisodes mappés ({best_server})")
             else:
-                # Fallback to old method if no arrays found
-                self.debug_print("No episode arrays found, using fallback method...")
-                
-                # Check for Sibnet links first
-                sibnet_matches = re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', content)
-                sibnet_links = {str(i): ('sibnet', match.group(1)) for i, match in enumerate(sibnet_matches, 1)}
-                
-                # Check for Vidmoly links
-                vidmoly_matches = re.finditer(r'https://vidmoly\.to/embed-([^.]+)\.html', content)
-                vidmoly_links = {str(i): ('vidmoly', match.group(1)) for i, match in enumerate(vidmoly_matches, 1)}
-                
-                # Use the service with the most links available (fallback method)
-                sibnet_count = len(sibnet_links)
-                vidmoly_count = len(vidmoly_links)
-                
-                if sibnet_count >= vidmoly_count and sibnet_count > 0:
-                    # Convert to new format with real or enhanced episode names
-                    for ep_num, (service, video_id) in sibnet_links.items():
-                        # Generate smart episode name
-                        episode_name = self._generate_smart_episode_name(int(ep_num), video_id, service, episode_info, special_episodes, complete_url)
-                        self.debug_print(f"Generated episode name for ep {ep_num}: {episode_name}")
-                        all_links[ep_num] = (service, video_id, episode_name)
-                elif vidmoly_count > 0:
-                    # Convert to new format with real episode numbers  
-                    for ep_num, (service, video_id) in vidmoly_links.items():
-                        # Generate smart episode name
-                        episode_name = self._generate_smart_episode_name(int(ep_num), video_id, service, episode_info, special_episodes, complete_url)
-                        self.debug_print(f"Generated episode name for ep {ep_num}: {episode_name}")
-                        all_links[ep_num] = (service, video_id, episode_name)
-            
-            # Report what we found
+                # Fallback : liens directs dans le JS
+                self.debug_print("Pas de tableaux eps*, fallback liens directs")
+                sibnet = {str(i): ('sibnet', m.group(1)) for i, m in enumerate(
+                    re.finditer(r'https://video\.sibnet\.ru/shell\.php\?videoid=(\d+)', content), 1)}
+                vidmoly = {str(i): ('vidmoly', m.group(1)) for i, m in enumerate(
+                    re.finditer(r'https://vidmoly\.to/embed-([^.]+)\.html', content), 1)}
+                source = sibnet if len(sibnet) >= len(vidmoly) and sibnet else vidmoly
+                for k, (srv, vid_id) in source.items():
+                    name = ep_names[int(k) - 1] if int(k) - 1 < len(ep_names) else f"Épisode {k}"
+                    all_links[k] = (srv, vid_id, name)
+
             if all_links:
-                max_ep = max([int(k) for k in all_links.keys()])
-                service_type = list(all_links.values())[0][0] if all_links else "unknown"
-                self.debug_print(f"Found {len(all_links)} episodes (1-{max_ep}) using {service_type}")
+                self.debug_print(f"Total : {len(all_links)} épisodes")
             else:
-                self.debug_print("No episodes found in any format")
-            
+                self.debug_print("Aucun épisode trouvé")
             return all_links
+
         except requests.RequestException as e:
-            print(f"Error fetching episodes: {e}")
+            print(f"{RED}✗ Erreur récupération épisodes : {e}{RESET}")
             return {}
+
+    # ── Résolution URL vidéo ──────────────────────────────────────────────────
 
     def get_video_url(self, video_data):
         try:
-            # Handle both old format (type, id) and new format (type, id, name)
-            if len(video_data) == 3:
-                video_type, video_id, episode_name = video_data
-                print(f"{B}🎬 Fetching: {M}{episode_name}{X} ({video_type}:{video_id})")
-            else:
-                video_type, video_id = video_data
-                print(f"{B}🎬 Fetching video: {M}{video_type}:{video_id}{X}")
-            
+            video_type, video_id = video_data[0], video_data[1]
             if video_type == 'sibnet':
                 return self._get_sibnet_url(video_id)
             elif video_type == 'vidmoly':
                 return self._get_vidmoly_url(video_id)
             else:
-                print(f"Unsupported video type: {video_type}")
+                print(f"{RED}✗ Serveur inconnu : {video_type}{RESET}")
                 return None
-                
         except Exception as e:
-            print(f"Error getting video URL: {e}")
+            print(f"{RED}✗ Erreur URL vidéo : {e}{RESET}")
             return None
-    
+
     def _get_sibnet_url(self, video_id):
         try:
-            url = f"https://video.sibnet.ru/shell.php"
-            response = self.session.get(url, params={"videoid": video_id})
-            response.raise_for_status()
-            html_content = response.text
-            print(f"{Y}🔍 Analyzing Sibnet content...{X}")
-            match = re.search(r'player\.src\(\[\{src: "/v/([^/]+)/', html_content)
+            resp = self.session.get("https://video.sibnet.ru/shell.php", params={"videoid": video_id})
+            resp.raise_for_status()
+            match = re.search(r'player\.src\(\[\{src: "/v/([^/]+)/', resp.text)
             if match:
-                video_hash = match.group(1)
-                url_sibnet = f"https://video.sibnet.ru/v/{video_hash}/{video_id}.mp4"
-                print(f"{G}✅ Sibnet URL found{X}")
-                headers_sibnet = {
-                    **HEADERS_BASE,
-                    "range": "bytes=0-",
-                    "accept-encoding": "identity",
-                    "referer": "https://video.sibnet.ru/",
-                }
-                response_sibnet = self.session.get(url_sibnet, headers=headers_sibnet, allow_redirects=False)
-                if response_sibnet.status_code == 302:
-                    return response_sibnet.headers['Location']
-                else:
-                    print(f"Unexpected Sibnet status code: {response_sibnet.status_code}")
+                url_mp4 = f"https://video.sibnet.ru/v/{match.group(1)}/{video_id}.mp4"
+                headers = {**HEADERS_BASE, "range": "bytes=0-", "accept-encoding": "identity", "referer": "https://video.sibnet.ru/"}
+                r2 = self.session.get(url_mp4, headers=headers, allow_redirects=False)
+                if r2.status_code == 302:
+                    return r2.headers['Location']
+                self.debug_print(f"Sibnet status inattendu : {r2.status_code}")
             else:
-                print("Sibnet pattern not found in HTML")
+                self.debug_print("Pattern Sibnet introuvable")
             return None
         except requests.RequestException as e:
-            print(f"Error getting Sibnet URL: {e}")
+            print(f"{RED}✗ Erreur Sibnet : {e}{RESET}")
             return None
-    
+
     def _get_vidmoly_url(self, video_id):
-        """
-        Extract direct HLS URL from Vidmoly embed page manually
-        """
-        vidmoly_domains = ['vidmoly.net', 'vidmoly.to']
-        
-        for domain in vidmoly_domains:
+        for domain in ['vidmoly.net', 'vidmoly.to']:
             try:
                 embed_url = f"https://{domain}/embed-{video_id}.html"
-                print(f"{Y}🔍 Extracting HLS URL from {domain}...{X}")
-                
-                # Get the embed page with proper headers
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0',
-                    'Referer': f'https://{domain}/'
-                }
-                response = self._cached_request('get', embed_url, headers=headers)
-                html_content = response.text
-                
-                # Look for the sources array with HLS URLs
-                # Pattern matches: sources: [{file:"https://box-...master.m3u8"}]
-                hls_patterns = [
+                self.debug_print(f"Extraction HLS depuis {domain}...")
+                headers = {'User-Agent': HEADERS_BASE['user-agent'], 'Referer': f'https://{domain}/'}
+                resp = self._cached_request('get', embed_url, headers=headers)
+                for pattern in [
                     r'sources:\s*\[\s*\{\s*file:\s*["\']([^"\']+\.m3u8[^"\']*)["\']',
                     r'file:\s*["\']([^"\']+\.m3u8[^"\']*)["\']',
                     r'"file"\s*:\s*"([^"]+\.m3u8[^"]*)"',
-                    r'src:\s*["\']([^"\']+\.m3u8[^"\']*)["\']'
-                ]
-                
-                for pattern in hls_patterns:
-                    match = re.search(pattern, html_content, re.IGNORECASE | re.DOTALL)
-                    if match:
-                        video_url = match.group(1)
-                        # Clean up the URL
-                        if video_url.startswith('//'):
-                            video_url = 'https:' + video_url
-                        elif not video_url.startswith('http'):
-                            video_url = f"https://{video_url.lstrip('/')}"
-                        
-                        print(f"{G}✅ Found HLS stream URL{X}")
-                        return video_url
-                
-                # If no HLS found, return embed URL as fallback
-                print(f"{Y}⚠ No HLS found, returning embed URL{X}")
+                    r'src:\s*["\']([^"\']+\.m3u8[^"\']*)["\']',
+                ]:
+                    m = re.search(pattern, resp.text, re.IGNORECASE | re.DOTALL)
+                    if m:
+                        url = m.group(1)
+                        if url.startswith('//'):
+                            url = 'https:' + url
+                        elif not url.startswith('http'):
+                            url = f"https://{url.lstrip('/')}"
+                        self.debug_print("URL HLS trouvée")
+                        return url
+                self.debug_print(f"Pas d'HLS sur {domain}, retour embed URL")
                 return embed_url
-                
             except Exception as e:
-                self.debug_print(f"Error with {domain}: {e}")
+                self.debug_print(f"Erreur {domain} : {e}")
                 continue
-        
-        # Final fallback
-        fallback_url = f"https://vidmoly.net/embed-{video_id}.html"
-        print(f"{Y}🔍 Using Vidmoly fallback...{X}")
-        return fallback_url
+        return f"https://vidmoly.net/embed-{video_id}.html"
 
-    def get_catalogue(self, query="", vf=False): 
+    # ── Catalogue ─────────────────────────────────────────────────────────────
+
+    def get_catalogue(self, query="", vf=False):
         try:
-            url = "https://anime-sama.fr/catalogue/"
+            url = "https://anime-sama.to/catalogue/"
             headers = {
-                **HEADERS_BASE,  # Use base headers and extend
-                "host": "anime-sama.fr",
+                **HEADERS_BASE,
+                "host": "anime-sama.to",
                 "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "referer": "https://anime-sama.fr/catalogue/",
-                "accept-language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+                "referer": "https://anime-sama.to/catalogue/",
+                "accept-language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
             }
-            querystring = {"search": query}
+            qs = {"search": query}
             if vf:
-                querystring["langue[]"] = "VF"
-            
-            self.debug_print(f"GET request to: {url}")
-            self.debug_print(f"Querystring: {querystring}")
-            
-            response = self._cached_request('get', url, headers=headers, params=querystring)
-            
-            self.debug_print(f"Status code: {response.status_code}")
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            animes = []
-            urls = []
-            
+                qs["langue[]"] = "VF"
+
+            self.debug_print(f"GET {url} | params={qs}")
+            resp = self._cached_request('get', url, headers=headers, params=qs)
+            self.debug_print(f"Status : {resp.status_code}")
+
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            animes, urls = [], []
             for card in soup.find_all('a', href=True):
-                titre = None
-                titre_tag = card.find('h1', class_='text-white font-bold uppercase text-md line-clamp-2')
-                if titre_tag:
-                    titre = titre_tag.text.strip()
-                
-                if titre and 'catalogue' in card['href']:
-                    animes.append(titre)
-                    urls.append(card['href'])
-            
+                t = card.find('h2', class_='card-title')
+                if t and 'catalogue' in card['href']:
+                    titre = t.text.strip()
+                    if titre:
+                        animes.append(titre)
+                        urls.append(card['href'])
+
             if vf:
-                urls = [link.replace("vostfr", "vf") for link in urls]
-            
-            self.debug_print(f"Found titles: {len(animes)}")
-            self.debug_print(f"Titles: {animes}")
-            
+                urls = [u.replace("vostfr", "vf") for u in urls]
+
+            self.debug_print(f"{len(animes)} résultat(s) : {animes}")
             return animes, urls
+
         except requests.RequestException as e:
-            print(f"Error fetching catalogue: {e}")
-            self.debug_print(f"Full exception: {str(e)}")
+            print(f"{RED}✗ Erreur catalogue : {e}{RESET}")
             return [], []
 
+
+# ── Commandes utilitaires ─────────────────────────────────────────────────────
+
 def show_available_animes():
-    """Show animes that work without VPN (Sibnet-based)"""
-    sibnet_animes = [
+    animes_test = [
         "south park", "one piece", "dragon ball", "attack on titan",
         "demon slayer", "jujutsu kaisen", "my hero academia", "bleach",
-        "fairy tail", "hunter x hunter", "fullmetal alchemist", "death note"
+        "fairy tail", "hunter x hunter", "fullmetal alchemist", "death note",
     ]
-    
-    print(f"\n{CYAN}{BOLD}🚀 ANIMES AVAILABLE WITHOUT VPN:{RESET}")
-    print(f"{GREEN}These animes use Sibnet and should work directly:{RESET}\n")
-    
-    downloader = AnimeDownloader(debug=False)
-    available_count = 0
-    
-    for anime in sibnet_animes:
-        print(f"{BLUE}Checking {anime.title()}...{RESET}", end=" ")
-        animes, urls = downloader.get_catalogue(anime, vf=False)
-        
-        if animes and urls:
-            # Quick check if it uses Sibnet
-            try:
-                anime_url = urls[0]
-                response = requests.get(anime_url, headers=HEADERS_BASE, timeout=5)
-                seasons = get_seasons(response.text)
-                
-                if seasons:
-                    season_url = anime_url.rstrip('/') + '/' + seasons[0]['url'].lstrip('/')
-                    filever = get_episode_list(season_url)
-                    
-                    if filever:
-                        episodes = downloader.get_anime_episode(season_url, filever)
-                        if episodes:
-                            first_episode = list(episodes.values())[0]
-                            service_type, _ = first_episode
-                            
-                            if service_type == 'sibnet':
-                                print(f"{GREEN}✅ Available ({animes[0]}){RESET}")
-                                available_count += 1
-                            else:
-                                print(f"{YELLOW}⚠ Uses Vidmoly{RESET}")
-                        else:
-                            print(f"{RED}✗ No episodes{RESET}")
-                    else:
-                        print(f"{RED}✗ No episode list{RESET}")
+    print(f"\n{BOLD}{CYAN}🚀 ANIMES DISPONIBLES SANS VPN :{RESET}")
+    downloader = AnimeDownloader()
+    count = 0
+    for anime in animes_test:
+        print(f"  {BLUE}{anime.title()}...{RESET}", end=" ", flush=True)
+        animes, urls = downloader.get_catalogue(anime)
+        if not animes:
+            print(f"{RED}✗ introuvable{RESET}")
+            continue
+        try:
+            seasons = get_seasons(requests.get(urls[0], headers=HEADERS_BASE, timeout=5).text)
+            if not seasons:
+                print(f"{RED}✗ pas de saison{RESET}")
+                continue
+            season_url = urls[0].rstrip('/') + '/' + seasons[0]['url'].lstrip('/')
+            filever = get_episode_list(season_url)
+            if not filever:
+                print(f"{RED}✗ pas de filever{RESET}")
+                continue
+            episodes = downloader.get_anime_episode(season_url, filever)
+            if episodes:
+                srv = list(episodes.values())[0][0]
+                if srv == 'sibnet':
+                    print(f"{GREEN}✓ Disponible (Sibnet){RESET}")
+                    count += 1
                 else:
-                    print(f"{RED}✗ No seasons{RESET}")
-            except:
-                print(f"{RED}✗ Error{RESET}")
-        else:
-            print(f"{RED}✗ Not found{RESET}")
-    
-    print(f"\n{CYAN}📊 SUMMARY:{RESET}")
-    print(f"  {GREEN}✓ {available_count} animes available without VPN{RESET}")
-    print(f"  {YELLOW}⚠ Vidmoly animes require VPN (Naruto, Sasuke, Boruto...){RESET}")
-    print(f"  {BLUE}💡 Use these animes for guaranteed playback{RESET}")
+                    print(f"{YELLOW}⚠ Vidmoly (VPN conseillé){RESET}")
+            else:
+                print(f"{RED}✗ pas d'épisodes{RESET}")
+        except Exception:
+            print(f"{RED}✗ erreur{RESET}")
+    print(f"\n{CYAN}  ✓ {count} anime(s) sans VPN   ⚠ Vidmoly nécessite VPN{RESET}\n")
+
 
 def check_anime_services():
-    """Check which streaming service popular animes use"""
-    popular_animes = [
-        ("naruto", "Naruto"),
-        ("one piece", "One Piece"), 
-        ("south park", "South Park"),
-        ("dragon ball", "Dragon Ball"),
-        ("attack on titan", "Attack on Titan")
+    popular = [
+        ("naruto", "Naruto"), ("one piece", "One Piece"),
+        ("south park", "South Park"), ("dragon ball", "Dragon Ball"),
+        ("attack on titan", "Attack on Titan"),
     ]
-    
-    print(f"\n{CYAN}{BOLD}🔍 CHECKING STREAMING SERVICES:{RESET}")
-    downloader = AnimeDownloader(debug=False)
-    
-    for query, display_name in popular_animes:
-        print(f"\n{YELLOW}Checking {display_name}...{RESET}")
-        animes, urls = downloader.get_catalogue(query, vf=False)
-        
-        if animes and urls:
-            # Check first result
-            anime_url = urls[0]
-            try:
-                response = requests.get(anime_url, headers=HEADERS_BASE, timeout=5)
-                seasons = get_seasons(response.text)
-                
-                if seasons:
-                    season_url = anime_url.rstrip('/') + '/' + seasons[0]['url'].lstrip('/')
-                    filever = get_episode_list(season_url)
-                    
-                    if filever:
-                        episodes = downloader.get_anime_episode(season_url, filever)
-                        if episodes:
-                            # Check what type of episodes we got
-                            first_episode = list(episodes.values())[0]
-                            service_type, _ = first_episode
-                            
-                            if service_type == 'sibnet':
-                                print(f"  {GREEN}✓ {display_name}: Uses Sibnet (should work){RESET}")
-                            elif service_type == 'vidmoly':
-                                print(f"  {YELLOW}⚠ {display_name}: Uses Vidmoly (may need VPN){RESET}")
-                            else:
-                                print(f"  {BLUE}? {display_name}: Unknown service type{RESET}")
-                        else:
-                            print(f"  {RED}✗ {display_name}: No episodes found{RESET}")
+    print(f"\n{BOLD}{CYAN}🔍 SERVICES DE STREAMING :{RESET}")
+    downloader = AnimeDownloader()
+    for query, name in popular:
+        print(f"\n  {YELLOW}{name}...{RESET}")
+        animes, urls = downloader.get_catalogue(query)
+        if not animes:
+            print(f"  {RED}✗ introuvable{RESET}")
+            continue
+        try:
+            seasons = get_seasons(requests.get(urls[0], headers=HEADERS_BASE, timeout=5).text)
+            if not seasons:
+                print(f"  {RED}✗ pas de saison{RESET}")
+                continue
+            season_url = urls[0].rstrip('/') + '/' + seasons[0]['url'].lstrip('/')
+            filever = get_episode_list(season_url)
+            if filever:
+                episodes = downloader.get_anime_episode(season_url, filever)
+                if episodes:
+                    srv = list(episodes.values())[0][0]
+                    if srv == 'sibnet':
+                        print(f"  {GREEN}✓ {name} : Sibnet (fonctionne){RESET}")
+                    elif srv == 'vidmoly':
+                        print(f"  {YELLOW}⚠ {name} : Vidmoly (VPN requis){RESET}")
                     else:
-                        print(f"  {RED}✗ {display_name}: Cannot get episode list{RESET}")
+                        print(f"  {BLUE}? {name} : service inconnu{RESET}")
                 else:
-                    print(f"  {RED}✗ {display_name}: No seasons found{RESET}")
-            except Exception as e:
-                print(f"  {RED}✗ {display_name}: Error - {e}{RESET}")
-        else:
-            print(f"  {RED}✗ {display_name}: Not found in catalogue{RESET}")
-    
-    print(f"\n{CYAN}📝 SUMMARY:{RESET}")
-    print(f"  {GREEN}✓ Sibnet animes should work normally{RESET}")
-    print(f"  {YELLOW}⚠ Vidmoly animes may require VPN to access{RESET}")
-    print(f"  {BLUE}💡 Use --vf flag for French dub versions{RESET}")
+                    print(f"  {RED}✗ pas d'épisodes{RESET}")
+            else:
+                print(f"  {RED}✗ liste épisodes inaccessible{RESET}")
+        except Exception as e:
+            print(f"  {RED}✗ erreur : {e}{RESET}")
+    print(f"\n  {BLUE}💡 --vf pour les doublages français{RESET}\n")
+
 
 def get_mpv_args(video_url):
-    """Generate mpv arguments based on video source"""
-    if 'vidmoly' in video_url.lower() or '.m3u8' in video_url or 'vmwesa.online' in video_url:
-        return [
-            'mpv', video_url, '--fullscreen',
-            '--user-agent=Mozilla/5.0 (X11; Linux x86_64; rv:134.0) Gecko/20100101 Firefox/134.0',
-            '--referrer=https://vidmoly.net/'
-        ]
-    else:
-        return ['mpv', video_url, '--fullscreen']
+    base = ['mpv', video_url, '--fullscreen',
+            f'--user-agent={HEADERS_BASE["user-agent"]}']
+    if 'vidmoly' in video_url.lower() or '.m3u8' in video_url:
+        base.append('--referrer=https://vidmoly.net/')
+    return base
+
+
+# ── Historique ────────────────────────────────────────────────────────────────
 
 def display_history():
-    """Display history with ani-cli style interface"""
     init_db()
     entries = get_history_entries()
-    
     if not entries:
-        die("No history found!")
-    
-    # Format entries for fzf display
-    display_items = []
-    for i, entry in enumerate(entries):
-        entry_id, anime_name, episode, saison, url = entry
-        display_items.append(f"{i+1}. {anime_name} - {episode} - {saison}")
-    
-    print(MAGENTA + "📚 History:" + RESET)
-    selected = fzf_select(display_items, "Select from history: ")
-    
+        die("Aucun historique trouvé")
+
+    display_items = [
+        f"{i+1}. {e[1]} — {e[2]} — {e[3]}"
+        for i, e in enumerate(entries)
+    ]
+
+    print(f"  {MAGENTA}📚 Historique{RESET}")
+    selected = fzf_select(display_items, "  Historique › ")
     if not selected:
         return
-    
-    # Parse selection
+
     try:
         index = int(selected.split('.')[0]) - 1
         if index < 0 or index >= len(entries):
-            die("Invalid selection")
-        
-        entry = entries[index]
-        anime_name, episode, saison, url = entry[1:5]
-        
-        print(f"Playing {anime_name} - {episode} - {saison}")
-        
-        # Get current episode number
-        match = re.search(r'(\d+)$', episode)
-        if not match:
-            die("Cannot determine current episode")
-        
-        current_ep = int(match.group(1))
-        
-        filever = get_episode_list(url)
-        if not filever:
-            die("Cannot fetch episode list")
-        
-        downloader = AnimeDownloader()
-        episodes = downloader.get_anime_episode(url, filever)
-        if not episodes:
-            die("No episodes found")
-        
-        # Find next episode
-        ep_keys_int = [int(e) for e in episodes.keys() if e.isdigit()]
-        ep_keys_int.sort()
-        
-        next_ep = None
-        for ep in ep_keys_int:
-            if ep > current_ep:
-                next_ep = ep
-                break
-        
-        if next_ep is None:
-            print(f"Already at the last episode: {anime_name} - Episode {current_ep} - {saison}")
-            return
-        
-        video_data = episodes[str(next_ep)]
-        print(f"Fetching episode {next_ep}...")
-        
-        video_url = downloader.get_video_url(video_data)
-        if not video_url:
-            die("Cannot get video URL")
-        
-        if video_url.startswith('//'):
-            video_url = 'https:' + video_url
-        
-        print(f"Playing with mpv...")
-        try:
-            mpv_args = get_mpv_args(video_url)
-            subprocess.run(mpv_args, check=True, timeout=PLAYBACK_TIMEOUT)
-            add_to_history(
-                anime_name=anime_name,
-                episode=f"Episode {next_ep}",
-                saison=saison,
-                url=url
-            )
-        except FileNotFoundError:
-            die("mpv is not installed")
-        except subprocess.CalledProcessError as e:
-            if 'vidmoly.to' in video_url:
-                print(RED + "✗ Vidmoly playback failed" + RESET)
-                print(YELLOW + " Try using a VPN or select animes that use Sibnet" + RESET)
-                die("Vidmoly not accessible")
-            else:
-                die(f"Playback error: {e}")
-        except Exception as e:
-            die(f"Playback error: {e}")
-        
+            die("Sélection invalide")
     except (ValueError, IndexError):
-        die("Invalid selection format")
+        die("Sélection invalide")
+
+    _, anime_name, episode, saison, url = entries[index]
+
+    match = re.search(r'(\d+)$', episode)
+    if not match:
+        die("Numéro d'épisode introuvable dans l'historique")
+    current_ep = int(match.group(1))
+
+    filever = get_episode_list(url)
+    if not filever:
+        die("Impossible de récupérer la liste des épisodes")
+
+    downloader = AnimeDownloader()
+    episodes = downloader.get_anime_episode(url, filever)
+    if not episodes:
+        die("Aucun épisode trouvé")
+
+    ep_keys = sorted(episodes.keys(), key=lambda k: int(k) if k.isdigit() else 0)
+    current_index = None
+    for i, k in enumerate(ep_keys):
+        if k.isdigit() and int(k) > current_ep:
+            current_index = i
+            break
+
+    if current_index is None:
+        print(f"  {GREEN}✓{RESET} Déjà au dernier épisode de {BOLD}{anime_name}{RESET} — {saison}")
+        return
+
+    try:
+        while True:
+            ep_key = ep_keys[current_index]
+            vdata = episodes[ep_key]
+            ep_label = vdata[2] if len(vdata) >= 3 else f"Épisode {ep_key}"
+
+            print(f"\n  {CYAN}▶{RESET} {BOLD}{ep_label}{RESET}  {WHITE}({anime_name}){RESET}")
+            vurl = downloader.get_video_url(vdata)
+            if not vurl:
+                die("URL vidéo introuvable")
+            if vurl.startswith('//'):
+                vurl = 'https:' + vurl
+
+            subprocess.run(get_mpv_args(vurl), check=True, timeout=PLAYBACK_TIMEOUT)
+            add_to_history(anime_name=anime_name, episode=f"Episode {ep_key}", saison=saison, url=url)
+
+            if current_index < len(ep_keys) - 1:
+                next_key = ep_keys[current_index + 1]
+                next_label = episodes[next_key][2] if len(episodes[next_key]) >= 3 else f"Épisode {next_key}"
+                try:
+                    ans = input(f"\n  {YELLOW}Suivant{RESET} › {next_label} ? [{GREEN}O{RESET}/n] ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    break
+                if ans in ('', 'o', 'y', 'oui', 'yes'):
+                    current_index += 1
+                else:
+                    break
+            else:
+                print(f"  {GREEN}✓{RESET} Dernier épisode atteint")
+                break
+
+    except FileNotFoundError:
+        die("mpv n'est pas installé")
+    except subprocess.CalledProcessError as e:
+        if 'vidmoly' in str(e):
+            print(f"{RED}✗ Vidmoly inaccessible — essayez un VPN ou --vf{RESET}")
+        die("Erreur de lecture")
+    except Exception as e:
+        die(f"Erreur inattendue : {e}")
+
+
+# ── Point d'entrée principal ──────────────────────────────────────────────────
 
 def main():
     show_banner()
     check_deps()
-    
-    parser = argparse.ArgumentParser(
-        description="anime-sama CLI with ani-cli style interface",
-        add_help=False
-    )
-    parser.add_argument("query", nargs="*", help="Search query")
-    parser.add_argument("-c", "--continue", action="store_true", 
-                       dest="continuer", help="Continue from history")
-    parser.add_argument("--vf", action="store_true", 
-                       help="Search for VF only")
-    parser.add_argument("--debug", action="store_true", 
-                       help="Debug mode")
-    parser.add_argument("--check-services", action="store_true",
-                       help="Show which streaming service each anime uses")
-    parser.add_argument("--available-only", action="store_true",
-                       help="Show only animes that work without VPN (Sibnet-based)")
-    parser.add_argument("--full-titles", action="store_true",
-                       help="Extract full episode titles using yt-dlp (slower but more detailed)")
-    parser.add_argument("-h", "--help", action="store_true", 
-                       help="Show help")
-    
+
+    parser = argparse.ArgumentParser(description="anisama-cli", add_help=False)
+    parser.add_argument("query", nargs="*")
+    parser.add_argument("-c", "--continue", action="store_true", dest="continuer")
+    parser.add_argument("--vf", action="store_true")
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--check-services", action="store_true")
+    parser.add_argument("--available-only", action="store_true")
+    parser.add_argument("-h", "--help", action="store_true")
     args = parser.parse_args()
-    
+
     if args.help:
-        print("""
-Usage: anisama-cli [OPTIONS] [SEARCH_TERM]
+        print(f"""
+  {BOLD}{WHITE}ANISAMA-CLI{RESET} {CYAN}v{__version__}{RESET}
 
-Options:
-    -c, --continue       Continue watching from history
-    --vf                Search for VF (French dub) only
-    --debug             Enable debug mode
-    --check-services    Show which streaming service each anime uses
-    --available-only    Show only animes that work without VPN (Sibnet)
-    --full-titles       Extract full episode titles using yt-dlp (slower)
-    -h, --help          Show this help
+  {BOLD}Usage :{RESET}
+    anisama-cli [OPTIONS] [RECHERCHE]
 
-Examples:
-    anisama-cli                    # Interactive search
-    anisama-cli naruto             # Search for "naruto"
-    anisama-cli -c                 # Show history
-    anisama-cli --vf one piece     # Search "one piece" in VF
-    anisama-cli --check-services   # Check service compatibility
-    anisama-cli --available-only   # Show only VPN-free animes
+  {BOLD}Options :{RESET}
+    {YELLOW}-c, --continue{RESET}       Reprendre depuis l'historique
+    {YELLOW}--vf{RESET}                 Rechercher en VF (doublage français)
+    {YELLOW}--debug{RESET}              Mode debug
+    {YELLOW}--check-services{RESET}     Afficher quel service utilise chaque anime
+    {YELLOW}--available-only{RESET}     Afficher uniquement les animes sans VPN (Sibnet)
+    {YELLOW}-h, --help{RESET}           Afficher cette aide
+
+  {BOLD}Exemples :{RESET}
+    anisama-cli                    # Recherche interactive
+    anisama-cli naruto             # Rechercher "naruto"
+    anisama-cli -c                 # Historique
+    anisama-cli --vf one piece     # One Piece en VF
         """)
         return
-    
+
     if args.continuer:
         display_history()
         return
-    
+
     if args.check_services:
         check_anime_services()
         return
-    
+
     if args.available_only:
         show_available_animes()
         return
-    
-    # Main search logic
-    query = " ".join(args.query) if args.query else ""
-    
-    if not query:
-        query = search_prompt()
-    
+
+    query = " ".join(args.query) if args.query else search_prompt()
+
     print()
-    print(BOLD + CYAN + f"╭─ 🔍 Searching anime-sama.fr..." + RESET)
-    print(CYAN + f"╰─➤ " + YELLOW + f'Query: "{query}"' + RESET)
-    
-    # Warn about Vidmoly issues and suggest VF versions
-    if any(anime in query.lower() for anime in ['naruto', 'sasuke', 'boruto']):
-        if not args.vf:
-            print(f"{YELLOW}⚠ Note: Naruto VOSTFR uses Vidmoly (may be blocked){RESET}")
-            print(f"{GREEN}💡 Try: --vf flag for French version (uses Sibnet - works better){RESET}")
-            print(f"{BLUE}   Example: ./anisama-cli --vf naruto{RESET}")
-        else:
-            print(f"{GREEN}✅ Using Naruto VF (French) - should work well (Sibnet){RESET}")
-    
+    print(f"{BOLD}{CYAN}╭─ 🔍 Recherche sur anime-sama.to{RESET}")
+    print(f"{CYAN}╰─➤{RESET} {YELLOW}\"{query}\"{RESET}")
+
+    if any(a in query.lower() for a in ['naruto', 'sasuke', 'boruto']) and not args.vf:
+        print(f"  {YELLOW}⚠ VOSTFR utilise Vidmoly (peut être bloqué) — essayez --vf{RESET}")
+
     try:
-        downloader = AnimeDownloader(debug=args.debug, use_metadata=args.full_titles)
+        downloader = AnimeDownloader(debug=args.debug)
         animes, urls = downloader.get_catalogue(query, vf=args.vf)
     except requests.exceptions.ConnectionError:
-        show_error_with_solutions('network', 'Cannot connect to anime-sama.fr')
-        die("Network connection failed")
+        show_error('network', 'Connexion à anime-sama.to impossible')
+        die("Erreur réseau")
     except requests.exceptions.Timeout:
-        show_error_with_solutions('network', 'Request timeout')
-        die("Connection timeout")
+        show_error('network', 'Timeout')
+        die("Timeout connexion")
     except Exception as e:
         if args.debug:
-            print(f"{RED}Debug: {str(e)}{RESET}")
-        show_error_with_solutions('network')
-        die("Failed to fetch anime catalogue")
-    
+            print(f"{RED}[DEBUG] {e}{RESET}")
+        show_error('network')
+        die("Impossible de récupérer le catalogue")
+
     if not animes:
-        show_error_with_solutions('no_results', f'Query: "{query}"')
-        die("No results found")
-    
+        show_error('no_results', f'Requête : "{query}"')
+        die("Aucun résultat")
+
     print()
-    print(BOLD + CYAN + "╔═══════════════════════════════════════╗" + RESET)
-    print(BOLD + CYAN + "║" + YELLOW + "    📋 SEARCH RESULTS" + CYAN + "                ║" + RESET)
-    print(BOLD + CYAN + "╚═══════════════════════════════════════╝" + RESET)
-    
-    # Format results for fzf
-    display_items = []
-    for i, anime in enumerate(animes):
-        display_items.append(f"{i+1}. {anime}")
-    
-    if args.debug:
-        print(f"[DEBUG] Display items: {display_items[:3]}...")  # Show first 3 items
-        print(f"[DEBUG] About to call fzf_select with {len(display_items)} items")
-    
-    selected_anime_str = fzf_select(display_items, "🔍 Select anime: ")
+    print(f"{BOLD}{CYAN}╭─ 📋 {len(animes)} résultat(s) pour \"{query}\"{RESET}")
+    print()
+
+    display_items = [f"{i+1}. {a}" for i, a in enumerate(animes)]
+    selected_anime_str = fzf_select(display_items, "  Anime › ")
     if not selected_anime_str:
-        die("No anime selected")
-    
-    # Parse selection
+        die("Aucun anime sélectionné")
+
     try:
-        selected_index = int(selected_anime_str.split('.')[0]) - 1
-        if selected_index < 0 or selected_index >= len(animes):
-            die("Invalid selection")
+        idx = int(selected_anime_str.split('.')[0]) - 1
+        if idx < 0 or idx >= len(animes):
+            die("Sélection invalide")
     except (ValueError, IndexError):
-        die("Invalid selection format")
-    
-    anime_name = animes[selected_index]
-    anime_url = urls[selected_index]
-    
-    print(GREEN + f"✓ {anime_name}" + RESET)
-    
-    # Get seasons
+        die("Sélection invalide")
+
+    anime_name = animes[idx]
+    anime_url = urls[idx]
+    print(f"  {GREEN}✓{RESET} {BOLD}{anime_name}{RESET}")
+
     response = requests.get(anime_url, headers=HEADERS_BASE)
     seasons = get_seasons(response.text)
-    
     if not seasons:
-        die("No seasons found")
-    
-    print(YELLOW + f"🎭 {len(seasons)} season(s) available" + RESET)
-    
-    # Format seasons for fzf
-    season_items = []
-    for i, season in enumerate(seasons):
-        season_items.append(f"{i+1}. {season['name']}")
-    
-    selected_season_str = fzf_select(season_items, "🎭 Select season: ")
+        die("Aucune saison trouvée")
+
+    season_items = [f"{i+1}. {s['name']}" for i, s in enumerate(seasons)]
+    selected_season_str = fzf_select(season_items, "  Saison › ")
     if not selected_season_str:
-        die("No season selected")
-    
-    # Parse season selection
+        die("Aucune saison sélectionnée")
+
     try:
-        season_index = int(selected_season_str.split('.')[0]) - 1
-        if season_index < 0 or season_index >= len(seasons):
-            die("Invalid season selection")
+        si = int(selected_season_str.split('.')[0]) - 1
+        if si < 0 or si >= len(seasons):
+            die("Sélection invalide")
     except (ValueError, IndexError):
-        die("Invalid season selection format")
-    
-    selected_season = seasons[season_index]
+        die("Sélection invalide")
+
+    selected_season = seasons[si]
     season_url = anime_url.rstrip('/') + '/' + selected_season['url'].lstrip('/')
-    
     if args.vf:
         season_url = season_url.replace("vostfr", "vf")
-    
-    print(f"Season URL: {season_url}")
-    
-    # Get episodes
+
+    if args.debug:
+        print(f"[DEBUG] Season URL : {season_url}")
+
     filever = get_episode_list(season_url)
     if not filever:
-        die("Cannot fetch episode list")
-    
+        die("Impossible de récupérer la liste des épisodes")
+
     episodes = downloader.get_anime_episode(season_url, filever)
     if not episodes:
-        die("No episodes found")
-    
-    print(BLUE + f"🎬 {len(episodes)} episode(s) available" + RESET)
-    
-    # Format episodes for fzf with real names
-    ep_items = []
+        die("Aucun épisode trouvé")
+
     ep_keys = list(episodes.keys())
-    for i, ep_key in enumerate(ep_keys):
-        episode_data = episodes[ep_key]
-        # Extract episode name if available
-        if len(episode_data) == 3:
-            _, _, episode_name = episode_data
-            ep_items.append(f"{i+1}. {episode_name}")
-        else:
-            ep_items.append(f"{i+1}. Episode {ep_key}")
-    
-    if args.debug:
-        print(f"[DEBUG] About to show {len(ep_items)} episodes for selection")
-        print(f"[DEBUG] First 5 episodes: {ep_items[:5]}")
-    
-    selected_episode_str = fzf_select(ep_items, "🎬 Select episode: ")
+    ep_items = []
+    for i, k in enumerate(ep_keys):
+        name = episodes[k][2] if len(episodes[k]) >= 3 else f"Épisode {k}"
+        ep_items.append(f"{i+1}. {name}")
+
+    selected_episode_str = fzf_select(ep_items, "  Épisode › ")
     if not selected_episode_str:
-        die("No episode selected")
-    
-    if args.debug:
-        print(f"[DEBUG] User selected: {selected_episode_str}")
-    
-    # Parse episode selection
+        die("Aucun épisode sélectionné")
+
     try:
-        ep_index = int(selected_episode_str.split('.')[0]) - 1
-        if ep_index < 0 or ep_index >= len(ep_keys):
-            die("Invalid episode selection")
+        ei = int(selected_episode_str.split('.')[0]) - 1
+        if ei < 0 or ei >= len(ep_keys):
+            die("Sélection invalide")
     except (ValueError, IndexError):
-        die("Invalid episode selection format")
-    
-    selected_ep = ep_keys[ep_index]
-    video_data = episodes[selected_ep]
-    
-    print(CYAN + f"🔄 Loading episode {selected_ep}..." + RESET)
-    
-    video_url = downloader.get_video_url(video_data)
-    if not video_url:
-        die("Cannot get video URL")
-    
-    if video_url.startswith('//'):
-        video_url = 'https:' + video_url
-    
-    print(GREEN + "▶ Starting playback..." + RESET)
+        die("Sélection invalide")
+
+    # Calcul du label de saison pour l'historique
+    def saison_label():
+        label = selected_season['name']
+        if "saison" not in label.lower():
+            m = re.search(r'/saison(\d+)', season_url, re.IGNORECASE)
+            label = f"Saison {m.group(1)}" if m else label
+        version = "VOSTFR" if "vostfr" in season_url.lower() else ("VF" if re.search(r'/vf/?', season_url.lower()) else "")
+        if version and version.lower() not in label.lower():
+            label = f"{label} - {version}"
+        return label
+
+    current_index = ei
+
     try:
-        mpv_args = get_mpv_args(video_url)
-        subprocess.run(mpv_args, check=True, timeout=PLAYBACK_TIMEOUT)
-        
-        # Determine season info for history
-        saison = selected_season['name']
-        if "saison" not in saison.lower():
-            match = re.search(r'/saison(\d+)', season_url, re.IGNORECASE)
-            if match:
-                saison = f"Saison {match.group(1)}"
+        while True:
+            ep_key = ep_keys[current_index]
+            vdata = episodes[ep_key]
+            ep_label = vdata[2] if len(vdata) >= 3 else f"Épisode {ep_key}"
+
+            print(f"\n  {CYAN}▶{RESET} {BOLD}{ep_label}{RESET}")
+            vurl = downloader.get_video_url(vdata)
+            if not vurl:
+                die("URL vidéo introuvable")
+            if vurl.startswith('//'):
+                vurl = 'https:' + vurl
+
+            subprocess.run(get_mpv_args(vurl), check=True, timeout=PLAYBACK_TIMEOUT)
+            add_to_history(anime_name=anime_name, episode=f"Episode {ep_key}", saison=saison_label(), url=season_url)
+
+            if current_index < len(ep_keys) - 1:
+                next_key = ep_keys[current_index + 1]
+                next_label = episodes[next_key][2] if len(episodes[next_key]) >= 3 else f"Épisode {next_key}"
+                try:
+                    ans = input(f"\n  {YELLOW}Suivant{RESET} › {next_label} ? [{GREEN}O{RESET}/n] ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    break
+                if ans in ('', 'o', 'y', 'oui', 'yes'):
+                    current_index += 1
+                else:
+                    break
             else:
-                saison = selected_season['name']
-        
-        # Add version info
-        if "vostfr" in season_url.lower():
-            version_str = "VOSTFR"
-        elif re.search(r'/vf/?', season_url.lower()):
-            version_str = "VF"
-        else:
-            version_str = ""
-        
-        if version_str and version_str.lower() not in saison.lower():
-            saison = f"{saison} - {version_str}"
-        
-        add_to_history(
-            anime_name=anime_name,
-            episode=f"Episode {selected_ep}",
-            saison=saison,
-            url=season_url
-        )
-        print(GREEN + "✓ Done!" + RESET + " Use " + YELLOW + "-c" + RESET + " to continue")
-        
+                print(f"  {GREEN}✓{RESET} Dernier épisode atteint")
+                break
+
     except FileNotFoundError:
-        show_error_with_solutions('deps', 'mpv not found')
-        die("mpv is not installed")
+        die("mpv n'est pas installé")
     except subprocess.CalledProcessError as e:
-        if 'vidmoly' in video_url.lower():
-            print(RED + "✗ Vidmoly playback failed" + RESET)
-            print(YELLOW + "  This anime uses Vidmoly service which may be blocked" + RESET)
-            show_error_with_solutions('playback', 'Vidmoly access issue')
-            die("Vidmoly streaming failed")
+        if 'vidmoly' in str(getattr(e, 'cmd', '')):
+            print(f"{RED}✗ Vidmoly inaccessible — essayez un VPN ou --vf{RESET}")
         else:
-            show_error_with_solutions('playback', f'Exit code: {e.returncode}')
-            die(f"Media player error: {e}")
+            show_error('playback', f'Code : {e.returncode}')
+        die("Erreur de lecture")
     except Exception as e:
-        show_error_with_solutions('playback')
-        die(f"Unexpected playback error: {e}")
+        show_error('playback')
+        die(f"Erreur inattendue : {e}")
+
+    print(f"\n  {GREEN}✓{RESET} Terminé — {YELLOW}-c{RESET} pour reprendre")
+
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print(f"\n{YELLOW}Interrupted by user{RESET}")
+        print(f"\n{YELLOW}Annulé{RESET}")
         sys.exit(0)
     except Exception as e:
-        die(f"Unexpected error: {e}")
+        die(f"Erreur inattendue : {e}")
